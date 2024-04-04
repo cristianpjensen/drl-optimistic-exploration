@@ -1,10 +1,12 @@
 import os
+import shutil
 from dotenv import load_dotenv
 from tqdm import tqdm
 import gymnasium as gym
 from sacred import Experiment
 import neptune
 from neptune.integrations.sacred import NeptuneObserver
+from gymnasium.wrappers.record_video import RecordVideo
 
 from agent import AGENTS
 from agent.agent import Agent
@@ -25,11 +27,11 @@ ex.observers.append(NeptuneObserver(run=run))
 
 @ex.config
 def config():
-    env_name = "CliffWalking-v0"
+    env_name = "LunarLander-v2"
     agent_id = "random"
     agent_config = {}
     train_episodes = 50
-    test_episodes = 1
+    test_episodes = 5
     gamma = 0.999
 
 
@@ -42,7 +44,7 @@ def main(
     test_episodes: int,
     gamma: float,
 ):
-    env = gym.make(env_name)
+    env = gym.make(env_name, render_mode="rgb_array")
 
     agent = AGENTS[agent_id](env.observation_space, env.action_space)
     agent.setup(agent_config)
@@ -52,13 +54,19 @@ def main(
         run["train/episode_return"].append(ep_return)
 
     env.reset()
+    env = RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0)
 
-    # TODO: Log video of the agent's performance
     for ep in tqdm(range(test_episodes), desc="Testing"):
         ep_return = run_episode(env, agent, gamma, train=False, log=True)
         run["test/episode_return"].append(ep_return)
 
+        if ep == 0:
+            run["test/video"].upload(f"videos/test-episode-{ep}.mp4", wait=True)
+
     env.close()
+
+    # Remove videos
+    shutil.rmtree("videos")
 
 
 def run_episode(env: gym.Env, agent: Agent, gamma, train=True, log=False):

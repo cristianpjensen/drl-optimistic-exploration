@@ -32,8 +32,8 @@ class ReplayBuffer():
         self.buffer.append(
             Transition(
                 torch.tensor(state, device=self.device),
-                torch.tensor(action, device=self.device),
-                torch.tensor(reward, device=self.device),
+                torch.tensor(action.flatten(), device=self.device),
+                torch.tensor([reward], device=self.device),
                 torch.tensor(next_state, device=self.device),
             )
         )
