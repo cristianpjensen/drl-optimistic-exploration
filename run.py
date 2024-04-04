@@ -72,15 +72,17 @@ def main(
 def run_episode(env: gym.Env, agent: Agent, gamma, train=True, log=False):
     """Run an episode in the environment with the given agent.
 
-    :param env: Environment.
-    :param agent: Agent.
-    :param gamma: Discount factor.
-    :param train: If enabled, the transitions are added to the replay buffer, and
-        the agent's policy is updated each iteration.
-    :param log: If enabled, call the log method of the agent, which logs anything
-        relevant to the agent.
+    Args:
+        env: Environment.
+        agent: Agent.
+        gamma: Discount factor.
+        train: If enabled, the transitions are added to the replay buffer, and
+            the agent's policy is updated each iteration.
+        log: If enabled, call the log method of the agent, which logs anything
+            relevant to the agent.
 
-    :return: The (discounted) return of the episode.
+    Returns:
+        The (discounted) return of the episode.
 
     """
 

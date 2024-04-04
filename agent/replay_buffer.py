@@ -11,11 +11,12 @@ Transition = namedtuple("Transition", ("state", "action", "reward", "next_state"
 class ReplayBuffer():
     """ A simple replay buffer that stores transitions.
 
-    :param min_size: Minimum size of the buffer before sampling.
-    :param max_size: Maximum size of the buffer.
-    :param batch_size: Number of samples to return when sampling. Make sure it is smaller than
-        `min_size`.
-    :param device: CUDA if available, otherwise CPU.
+    Args:
+        min_size: Minimum size of the buffer before sampling.
+        max_size: Maximum size of the buffer.
+        batch_size: Number of samples to return when sampling. Make sure it is smaller than
+            `min_size`.
+        device: CUDA if available, otherwise CPU.
 
     """
 
