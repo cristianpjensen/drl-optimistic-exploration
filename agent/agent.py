@@ -23,14 +23,14 @@ class Agent(ABC):
         self.replay_buffer = ReplayBuffer(min_size=buffer_size[0], max_size=buffer_size[1], batch_size=batch_size)
 
     @abstractmethod
-    def setup_agent(self, config):
+    def setup(self, config: dict):
         """ This method is called when the agent is created. The agent should use the config
         dictionary to set up whatever is needed to learn its policy. """
 
         pass
 
     @abstractmethod
-    def act(self, state: np.ndarray, train: bool) -> np.int64:
+    def act(self, state: np.ndarray, timestep: int, train: bool) -> np.int64:
         """ This method is called when the agent needs to select an action to take in the
         environment. """
 
@@ -54,15 +54,24 @@ class Agent(ABC):
 
         pass
 
+    @abstractmethod
+    def log(self, state: np.ndarray, action: np.int64):
+        """ Log anything relevant to the agent. """
+
+        pass
+
 
 class RandomAgent(Agent):
     """ An agent that selects actions uniformly at random. """
 
-    def setup_agent(self, config):
+    def setup(self, config):
         pass
 
-    def act(self, state, train):
+    def act(self, state, timestep, train):
         return self.action_space.sample()
 
     def train(self, s_batch, a_batch, r_batch, s_next_batch):
+        pass
+
+    def log(self, state, action):
         pass
