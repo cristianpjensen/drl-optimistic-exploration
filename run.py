@@ -63,10 +63,11 @@ def main(
     env = NormalizeObservation(env)
     env = NormalizeReward(env)
 
-    agent = AGENTS[agent_id](env.observation_space, env.action_space)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    agent.setup(agent_config, device)
+    agent = AGENTS[agent_id](env.observation_space, env.action_space, device=device)
+    agent.setup(agent_config)
+
+    print("Device:", device)
 
     for _ in tqdm(range(train_episodes), desc="Training"):
         ep_return = run_episode(env, agent, gamma, train=True, log=False)

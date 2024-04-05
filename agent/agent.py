@@ -17,13 +17,15 @@ class Agent(ABC):
         action_space: gym.Space,
         batch_size: int = 32,
         buffer_size: Tuple[int, int] = (100, 1000000),
+        device: torch.device = torch.device("cpu"),
     ):
         self.observation_space = observation_space
         self.action_space = action_space
-        self.replay_buffer = ReplayBuffer(min_size=buffer_size[0], max_size=buffer_size[1], batch_size=batch_size)
+        self.replay_buffer = ReplayBuffer(min_size=buffer_size[0], max_size=buffer_size[1], batch_size=batch_size, device=device)
+        self.device = device
 
     @abstractmethod
-    def setup(self, config: dict, device: torch.device):
+    def setup(self, config: dict):
         """ This method is called when the agent is created. The agent should use the config
         dictionary to set up whatever is needed to learn its policy. """
 
@@ -64,7 +66,7 @@ class Agent(ABC):
 class RandomAgent(Agent):
     """ An agent that selects actions uniformly at random. """
 
-    def setup(self, config, device):
+    def setup(self, config):
         pass
 
     def act(self, state, timestep, train):
