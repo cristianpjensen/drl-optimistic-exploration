@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 from typing import Tuple
 import gymnasium as gym
 import numpy as np
-import random
 import torch
+
 from agent.replay_buffer import ReplayBuffer
 
 
@@ -16,14 +16,14 @@ class Agent(ABC):
         observation_space: gym.Space,
         action_space: gym.Space,
         batch_size: int = 32,
-        buffer_size: Tuple[int, int] = (100, 10000),
+        buffer_size: Tuple[int, int] = (100, 1000000),
     ):
         self.observation_space = observation_space
         self.action_space = action_space
         self.replay_buffer = ReplayBuffer(min_size=buffer_size[0], max_size=buffer_size[1], batch_size=batch_size)
 
     @abstractmethod
-    def setup(self, config: dict):
+    def setup(self, config: dict, device: torch.device):
         """ This method is called when the agent is created. The agent should use the config
         dictionary to set up whatever is needed to learn its policy. """
 
@@ -64,7 +64,7 @@ class Agent(ABC):
 class RandomAgent(Agent):
     """ An agent that selects actions uniformly at random. """
 
-    def setup(self, config):
+    def setup(self, config, device):
         pass
 
     def act(self, state, timestep, train):

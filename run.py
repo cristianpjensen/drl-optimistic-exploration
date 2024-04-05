@@ -1,5 +1,6 @@
 import os
 import shutil
+import torch
 from dotenv import load_dotenv
 from tqdm import tqdm
 import gymnasium as gym
@@ -7,6 +8,9 @@ from sacred import Experiment
 import neptune
 from neptune.integrations.sacred import NeptuneObserver
 from gymnasium.wrappers.record_video import RecordVideo
+from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
+from gymnasium.wrappers.frame_stack import FrameStack
+from gymnasium.wrappers.normalize import NormalizeObservation, NormalizeReward
 
 from agent import AGENTS
 from agent.agent import Agent
@@ -29,10 +33,12 @@ ex.observers.append(NeptuneObserver(run=run))
 def config():
     env_name = "LunarLander-v2"
     agent_id = "random"
-    agent_config = {}
     train_episodes = 50
     test_episodes = 5
-    gamma = 0.999
+    gamma = 0.99
+    agent_config = {
+        "gamma": gamma,
+    }
 
 
 @ex.main
@@ -46,13 +52,27 @@ def main(
 ):
     env = gym.make(env_name, render_mode="rgb_array")
 
+    # Preprocessing for Atari games. Make sure to only use the ALE namespace, such that this
+    # condition does not fail.
+    if env.spec.namespace == "ALE":
+        # The ALE environments already have frame skipping
+        env = AtariPreprocessing(env, frame_skip=1, screen_size=84)
+        env = FrameStack(env, 4)
+
+    # Normalization
+    env = NormalizeObservation(env)
+    env = NormalizeReward(env)
+
     agent = AGENTS[agent_id](env.observation_space, env.action_space)
-    agent.setup(agent_config)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    agent.setup(agent_config, device)
 
     for _ in tqdm(range(train_episodes), desc="Training"):
         ep_return = run_episode(env, agent, gamma, train=True, log=False)
         run["train/episode_return"].append(ep_return)
 
+    # Add video recorder wrapper only on the first test episode
     env.reset()
     env = RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0)
 
