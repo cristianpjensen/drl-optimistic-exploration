@@ -1,56 +1,79 @@
-import torch
-import numpy as np
-from collections import deque, namedtuple
-import random
 from typing import Tuple
 
+import torch
 
-Transition = namedtuple("Transition", ("state", "action", "reward", "next_state"))
 
-
-class ReplayBuffer():
-    """ A simple replay buffer that stores transitions.
-
-    Note: Do not put the stored data on the GPU, since the VRAM would fill up really quick.
+class ReplayBuffer:
+    """A simple replay buffer that stores transitions with a frame stacking mechanisms.
 
     Args:
-        min_size: Minimum size of the buffer before sampling.
         max_size: Maximum size of the buffer.
-        batch_size: Number of samples to return when sampling. Make sure it is smaller than
-            `min_size`.
+        batch_size: Number of samples to return when sampling.
+        frame_stack: Number of frames to stack when sampling.
         device: CUDA if available, otherwise CPU.
 
     """
 
-    def __init__(self, min_size: int, max_size: int, batch_size: int, device: torch.device = torch.device("cpu")):
-        self.buffer = deque(maxlen=max_size)
-        self.min_size = min_size
+    def __init__(
+        self,
+        max_size: int = 1000000,
+        batch_size: int = 32,
+        frame_stack: int = 1,
+        device: torch.device = torch.device("cpu"),
+    ):
+        self.max_size = max_size
         self.batch_size = batch_size
+        self.frame_stack = frame_stack
         self.device = device
 
-    def __len__(self):
-        return len(self.buffer)
+        self.states = torch.zeros((max_size, 84, 84), dtype=torch.uint8, device=device)
+        self.actions = torch.zeros((max_size, 1), dtype=torch.int64, device=device)
+        self.rewards = torch.zeros((max_size, 1), dtype=torch.float32, device=device)
+        self.terminals = torch.zeros((max_size, 1), dtype=torch.bool, device=device)
 
-    def push(self, state, action, reward, next_state):
-        self.buffer.append(
-            Transition(
-                torch.tensor(np.array([state]), dtype=torch.float32),
-                torch.tensor(action.flatten(), dtype=torch.float32),
-                torch.tensor(np.array([reward]), dtype=torch.float32),
-                torch.tensor(np.array([next_state]), dtype=torch.float32),
-            )
-        )
+        self.entries = 0
+
+    def push(self, state, action, reward, terminal):
+        if self.entries >= self.max_size:
+            return
+
+        index = self.entries
+
+        self.states[index] = torch.tensor(state, dtype=torch.uint8, device=self.device)
+        self.actions[index] = torch.tensor(action, dtype=torch.int64, device=self.device)
+        self.rewards[index] = torch.tensor(reward, dtype=torch.float32, device=self.device)
+        self.terminals[index] = torch.tensor(terminal, dtype=torch.bool, device=self.device)
+
+        self.entries += 1
 
     def sample_batch(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        batch = random.sample(self.buffer, self.batch_size)
-        batch = Transition(*zip(*batch))
+        # Use the frame stack by sampling the last frame and then stacking the previous frames
 
-        state_batch = torch.cat(batch.state).to(self.device)
-        action_batch = torch.cat(batch.action).to(self.device)
-        reward_batch = torch.cat(batch.reward).to(self.device)
-        next_state_batch = torch.cat(batch.next_state).to(self.device)
+        # Sample random indices
+        indices = torch.randint(self.frame_stack - 1, min(self.entries, self.max_size), (self.batch_size,))
 
-        return state_batch, action_batch, reward_batch, next_state_batch
+        # Stack frames
+        stacked_indices = (indices.reshape(-1, 1) + torch.arange(-(self.frame_stack - 1), 1)).flatten()
+        state = self.states[stacked_indices]
+        state = state.reshape(self.batch_size, self.frame_stack, *state.shape[1:])
+
+        # Next state with stacked frames aswell but shifted one
+        next_state = self.states[stacked_indices + 1]
+        next_state = next_state.reshape(self.batch_size, self.frame_stack, *next_state.shape[1:])
+
+        # Mark as terminal if any of the frames in the stack or next state is terminal. These should
+        # not be used for learning.
+        stacked_and_next_indices = (indices.reshape(-1, 1) + torch.arange(-(self.frame_stack - 1), 2)).flatten()
+        terminal = self.terminals[stacked_and_next_indices]
+        terminal = terminal.reshape(self.batch_size, self.frame_stack + 1).any(dim=1)
+
+        action = self.actions[indices]
+        reward = self.rewards[indices]
+
+        return state, action, reward, next_state, terminal
+
+    def __len__(self):
+        return self.entries
 
     def is_ready(self):
-        return self.__len__() >= self.min_size
+        return len(self) >= self.batch_size + self.frame_stack

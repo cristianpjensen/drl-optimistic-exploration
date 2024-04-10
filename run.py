@@ -1,20 +1,19 @@
 import os
 import shutil
+
+import gymnasium as gym
+import neptune
 import torch
 from dotenv import load_dotenv
-from tqdm import tqdm
-import gymnasium as gym
-from sacred import Experiment
-import neptune
-from neptune.integrations.sacred import NeptuneObserver
-from gymnasium.wrappers.record_video import RecordVideo
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
-from gymnasium.wrappers.frame_stack import FrameStack
-from gymnasium.wrappers.normalize import NormalizeObservation, NormalizeReward
+from gymnasium.wrappers.normalize import NormalizeReward
+from gymnasium.wrappers.record_video import RecordVideo
+from neptune.integrations.sacred import NeptuneObserver
+from sacred import Experiment
+from tqdm import tqdm
 
 from agent import AGENTS
 from agent.agent import Agent
-
 
 load_dotenv()
 
@@ -33,9 +32,13 @@ ex.observers.append(NeptuneObserver(run=run))
 def config():
     env_name = "LunarLander-v2"
     agent_id = "random"
-    train_episodes = 50
+    train_steps = 1000000
     test_episodes = 5
+
+    # Every 10 training episodes, run a test episode
+    train_test_interval = 10
     gamma = 0.99
+
     agent_config = {
         "gamma": gamma,
     }
@@ -46,40 +49,63 @@ def main(
     env_name: str,
     agent_id: str,
     agent_config: dict,
-    train_episodes: int,
+    train_steps: int,
     test_episodes: int,
+    train_test_interval: int,
     gamma: float,
 ):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Device:", device)
+
     env = gym.make(env_name, render_mode="rgb_array")
+    env = NormalizeReward(env, gamma=gamma)
 
     # Preprocessing for Atari games. Make sure to only use the ALE namespace, such that this
     # condition does not fail.
     if env.spec.namespace == "ALE":
         # The ALE environments already have frame skipping
         env = AtariPreprocessing(env, frame_skip=1, screen_size=84)
-        env = FrameStack(env, 4)
+        agent = AGENTS[agent_id](env.observation_space, env.action_space, frame_stack=4, device=device)
+    else:
+        agent = AGENTS[agent_id](env.observation_space, env.action_space, frame_stack=1, device=device)
 
-    # Normalization
-    env = NormalizeObservation(env)
-    env = NormalizeReward(env)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    agent = AGENTS[agent_id](env.observation_space, env.action_space, device=device)
     agent.setup(agent_config)
 
-    print("Device:", device)
+    timesteps_trained = 0
+    episodes_trained = 0
 
-    for _ in tqdm(range(train_episodes), desc="Training"):
-        ep_return = run_episode(env, agent, gamma, train=True, log=False)
-        run["train/episode_return"].append(ep_return)
+    with tqdm(total=train_steps, desc="Training") as pbar:
+        while timesteps_trained < train_steps:
+            if episodes_trained % train_test_interval == 0:
+                discounted_return, undiscounted_return, _ = run_episode(env, agent, gamma, train=False, log=False)
+                run["train/test_discounted_return"].append(discounted_return)
+                run["train/test_undiscounted_return"].append(undiscounted_return)
+
+            discounted_return, undiscounted_return, timesteps = run_episode(env, agent, gamma, train=True, log=False)
+            timesteps_trained += timesteps
+
+            run["train/timesteps"].append(timesteps_trained)
+            run["train/discounted_return"].append(discounted_return)
+            run["train/undiscounted_return"].append(undiscounted_return)
+
+            pbar.update(timesteps)
+
+            episodes_trained += 1
 
     # Add video recorder wrapper only on the first test episode
     env.reset()
-    env = RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0)
+    env = RecordVideo(
+        env,
+        "videos",
+        name_prefix="test",
+        disable_logger=True,
+        episode_trigger=lambda t: t == 0,
+    )
 
     for ep in tqdm(range(test_episodes), desc="Testing"):
-        ep_return = run_episode(env, agent, gamma, train=False, log=True)
-        run["test/episode_return"].append(ep_return)
+        discounted_return, undiscounted_return, _ = run_episode(env, agent, gamma, train=False, log=True)
+        run["test/discounted_return"].append(discounted_return)
+        run["test/undiscounted_return"].append(undiscounted_return)
 
         if ep == 0:
             run["test/video"].upload(f"videos/test-episode-{ep}.mp4", wait=True)
@@ -88,6 +114,10 @@ def main(
 
     # Remove videos
     shutil.rmtree("videos")
+
+
+# TODO: Mark loss of life as terminal state, but don't reset the environment. Supposedly, this
+# leads to more efficient training, according to https://github.com/jacobaustin123/pytorch-dqn.
 
 
 def run_episode(env: gym.Env, agent: Agent, gamma, train=True, log=False):
@@ -103,34 +133,39 @@ def run_episode(env: gym.Env, agent: Agent, gamma, train=True, log=False):
             relevant to the agent.
 
     Returns:
-        The (discounted) return of the episode.
+        - The discounted return of the episode.
+        - The undiscounted return of the episode.
+        - Number of steps
 
     """
 
     state, _ = env.reset()
     ep_return = 0
-    timestep = 0
+    undiscounted_ep_return = 0
+    t = 0
 
     done = False
     while not done:
-        action = agent.act(state, timestep, train)
+        action = agent.act(state, train)
         next_state, reward, terminated, truncated, _ = env.step(action)
 
         if train:
-            agent.replay_buffer.push(state, action, reward, next_state)
+            agent.replay_buffer.push(state, action, reward, terminal=terminated or truncated)
 
-            if agent.replay_buffer.is_ready():
+            if agent.replay_buffer.is_ready() and t % 4 == 0:
                 agent.update_policy()
 
         if log:
             agent.log(state, action)
 
-        ep_return += (gamma ** timestep) * reward
+        ep_return += (gamma**t) * reward
+        undiscounted_ep_return += reward
+
         state = next_state
         done = terminated or truncated
-        timestep += 1
+        t += 1
 
-    return ep_return
+    return ep_return, undiscounted_ep_return, t
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@
 ```
 conda create --name forl-distributional python=3.11
 conda activate forl-distributional
+pip install swig
 pip install -r requirements.txt
 ```
 
