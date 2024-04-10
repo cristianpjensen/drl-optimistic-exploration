@@ -11,6 +11,8 @@ Transition = namedtuple("Transition", ("state", "action", "reward", "next_state"
 class ReplayBuffer():
     """ A simple replay buffer that stores transitions.
 
+    Note: Do not put the stored data on the GPU, since the VRAM would fill up really quick.
+
     Args:
         min_size: Minimum size of the buffer before sampling.
         max_size: Maximum size of the buffer.
@@ -32,10 +34,10 @@ class ReplayBuffer():
     def push(self, state, action, reward, next_state):
         self.buffer.append(
             Transition(
-                torch.tensor(np.array([state]), dtype=torch.float32, device=self.device),
-                torch.tensor(action.flatten(), dtype=torch.float32, device=self.device),
-                torch.tensor(np.array([reward]), dtype=torch.float32, device=self.device),
-                torch.tensor(np.array([next_state]), dtype=torch.float32, device=self.device),
+                torch.tensor(np.array([state]), dtype=torch.float32),
+                torch.tensor(action.flatten(), dtype=torch.float32),
+                torch.tensor(np.array([reward]), dtype=torch.float32),
+                torch.tensor(np.array([next_state]), dtype=torch.float32),
             )
         )
 
@@ -43,10 +45,10 @@ class ReplayBuffer():
         batch = random.sample(self.buffer, self.batch_size)
         batch = Transition(*zip(*batch))
 
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
-        next_state_batch = torch.cat(batch.next_state)
+        state_batch = torch.cat(batch.state).to(self.device)
+        action_batch = torch.cat(batch.action).to(self.device)
+        reward_batch = torch.cat(batch.reward).to(self.device)
+        next_state_batch = torch.cat(batch.next_state).to(self.device)
 
         return state_batch, action_batch, reward_batch, next_state_batch
 
