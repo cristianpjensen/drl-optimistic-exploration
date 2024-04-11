@@ -31,13 +31,14 @@ class ReplayBuffer:
         self.rewards = torch.zeros((max_size, 1), dtype=torch.float32, device=device)
         self.terminals = torch.zeros((max_size, 1), dtype=torch.bool, device=device)
 
+        # Keep track of which index was last added, since we do not want to sample any frames that
+        # contain `last_added`
+        self.last_added = 0
         self.entries = 0
 
     def push(self, state, action, reward, terminal):
-        if self.entries >= self.max_size:
-            return
-
-        index = self.entries
+        # Implemented as deque
+        index = self.entries % self.max_size
 
         self.states[index] = torch.tensor(state, dtype=torch.uint8, device=self.device)
         self.actions[index] = torch.tensor(action, dtype=torch.int64, device=self.device)
@@ -45,6 +46,7 @@ class ReplayBuffer:
         self.terminals[index] = torch.tensor(terminal, dtype=torch.bool, device=self.device)
 
         self.entries += 1
+        self.last_added = index
 
     def sample_batch(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # Use the frame stack by sampling the last frame and then stacking the previous frames
@@ -65,6 +67,11 @@ class ReplayBuffer:
         # not be used for learning.
         stacked_and_next_indices = (indices.reshape(-1, 1) + torch.arange(-(self.frame_stack - 1), 2)).flatten()
         terminal = self.terminals[stacked_and_next_indices]
+
+        # Mark any observation that contains `self.last_added` as terminal
+        terminal = terminal | (stacked_and_next_indices == self.last_added)
+
+        # If any frame is terminal, the whole observation is terminal
         terminal = terminal.reshape(self.batch_size, self.frame_stack + 1).any(dim=1)
 
         action = self.actions[indices]
