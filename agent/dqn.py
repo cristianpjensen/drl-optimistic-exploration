@@ -23,12 +23,10 @@ class AtariDQNAgent(Agent):
 
     def act(self, state, train):
         # Epsilon greedy
-        if train: # and torch.rand(()) <= self.scheduler.value(self.num_actions):
+        if train and torch.rand(()) <= self.scheduler.value(self.num_actions):
             return self.action_space.sample()
 
         self.num_actions += 1
-
-        # TODO: Implement frame stacking
 
         state = torch.tensor(np.array(state), dtype=torch.float32, device=self.device).unsqueeze(0)
         q_values = self.q_network(state)

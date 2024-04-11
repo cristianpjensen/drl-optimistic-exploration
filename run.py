@@ -4,6 +4,8 @@ import shutil
 import gymnasium as gym
 import neptune
 import torch
+import numpy as np
+from collections import deque
 from dotenv import load_dotenv
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
 from gymnasium.wrappers.normalize import NormalizeReward
@@ -120,7 +122,7 @@ def main(
 # leads to more efficient training, according to https://github.com/jacobaustin123/pytorch-dqn.
 
 
-def run_episode(env: gym.Env, agent: Agent, gamma, train=True, log=False):
+def run_episode(env: gym.Env, agent: Agent, gamma: float, train=True, log=False):
     """Run an episode in the environment with the given agent.
 
     Args:
@@ -144,9 +146,20 @@ def run_episode(env: gym.Env, agent: Agent, gamma, train=True, log=False):
     undiscounted_ep_return = 0
     t = 0
 
+    # Make sure the observations given to the agent are frame stacked as the replay buffer samples
+    frame_stack = agent.replay_buffer.frame_stack
+    frames = deque(maxlen=frame_stack)
+
+    # Fill up frame stack with zeros
+    for _ in range(frame_stack):
+        frames.append(np.zeros_like(state))
+
     done = False
     while not done:
-        action = agent.act(state, train)
+        frames.append(state)
+        observation = np.array(frames)
+
+        action = agent.act(observation, train)
         next_state, reward, terminated, truncated, _ = env.step(action)
 
         if train:
