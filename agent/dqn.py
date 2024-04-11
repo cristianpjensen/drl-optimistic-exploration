@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 import torch.nn as nn
@@ -5,6 +6,9 @@ from torch.optim import Adam
 
 from agent.agent import Agent
 from agent.utils.scheduler import LinearScheduler
+
+
+# TODO: The agent does not seem to be improving during training: debug.
 
 
 class AtariDQNAgent(Agent):
@@ -15,11 +19,15 @@ class AtariDQNAgent(Agent):
         self.optim = Adam(self.q_network.parameters(), lr=0.00025, betas=(0.95, 0.95), eps=0.01)
         self.gamma = config["gamma"]
 
-        self.scheduler = LinearScheduler(100000, 1, 0.1)
+        self.scheduler = LinearScheduler(1_000_000, 1, 0.1)
         self.num_actions = 0
 
         self.num_updates = 0
-        self.target_update_freq = 10000
+        self.target_update_freq = 1_000
+
+        # For logging the loss
+        self.current_loss = 0
+        self.logged_loss = True
 
     def act(self, state, train):
         # Epsilon greedy
@@ -55,8 +63,21 @@ class AtariDQNAgent(Agent):
         if self.num_updates % self.target_update_freq == 0:
             self.q_target.load_state_dict(self.q_network.state_dict())
 
-    def log(self, state, action):
-        pass
+        self.current_loss = loss
+        self.logged_loss = False
+
+    def log(self, run):
+        if not self.logged_loss:
+            run["train/loss"].append(step=self.num_updates, value=self.current_loss)
+            self.logged_loss = True
+
+    def save(self, dir) -> bool:
+        os.makedirs(dir, exist_ok=True)
+        torch.save(self.q_network.state_dict(), f"{dir}/q_network.pt")
+        return True
+
+    def load(self, dir):
+        torch.load(self.q_network.state_dict(), f"{dir}/q_network.pt")
 
 
 class AtariValueNetwork(nn.Module):

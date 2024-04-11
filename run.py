@@ -30,10 +30,17 @@ run = neptune.init_run(
 ex.observers.append(NeptuneObserver(run=run))
 
 
+# TODO: Implement parallel training with vectorized environments
+# (https://gymnasium.farama.org/main/introduction/speed_up_env/,
+# https://gymnasium.farama.org/tutorials/gymnasium_basics/vector_envs_tutorial/#using-vectorized-environments).
+# Single loop training only uses ~21% of a single A100 GPU and ~3.8% of CPU. At the moment, training
+# for 5_000_000 steps on Pong takes ~4.5 hours.
+
+
 @ex.config
 def config():
-    env_name = "LunarLander-v2"
-    agent_id = "random"
+    env_name = "ALE/Breakout-v5"
+    agent_id = "atari-dqn"
     train_steps = 1000000
     test_episodes = 5
 
@@ -61,6 +68,7 @@ def main(
 
     env = gym.make(env_name, render_mode="rgb_array")
     env = NormalizeReward(env, gamma=gamma)
+    env.metadata["render_fps"] = 30
 
     # Preprocessing for Atari games. Make sure to only use the ALE namespace, such that this
     # condition does not fail.
@@ -80,15 +88,14 @@ def main(
         while timesteps_trained < train_steps:
             if episodes_trained % train_test_interval == 0:
                 discounted_return, undiscounted_return, _ = run_episode(env, agent, gamma, train=False, log=False)
-                run["train/test_discounted_return"].append(discounted_return)
-                run["train/test_undiscounted_return"].append(undiscounted_return)
+                run["train/test_discounted_return"].append(step=timesteps_trained, value=discounted_return)
+                run["train/test_undiscounted_return"].append(step=timesteps_trained, value=undiscounted_return)
 
-            discounted_return, undiscounted_return, timesteps = run_episode(env, agent, gamma, train=True, log=False)
+            discounted_return, undiscounted_return, timesteps = run_episode(env, agent, gamma, train=True, log=True)
             timesteps_trained += timesteps
 
-            run["train/timesteps"].append(timesteps_trained)
-            run["train/discounted_return"].append(discounted_return)
-            run["train/undiscounted_return"].append(undiscounted_return)
+            run["train/discounted_return"].append(step=timesteps_trained, value=discounted_return)
+            run["train/undiscounted_return"].append(step=timesteps_trained, value=undiscounted_return)
 
             pbar.update(timesteps)
 
@@ -105,7 +112,7 @@ def main(
     )
 
     for ep in tqdm(range(test_episodes), desc="Testing"):
-        discounted_return, undiscounted_return, _ = run_episode(env, agent, gamma, train=False, log=True)
+        discounted_return, undiscounted_return, _ = run_episode(env, agent, gamma, train=False, log=False)
         run["test/discounted_return"].append(discounted_return)
         run["test/undiscounted_return"].append(undiscounted_return)
 
@@ -114,7 +121,14 @@ def main(
 
     env.close()
 
-    # Remove videos
+    saved = agent.save("weights")
+    if saved:
+        shutil.make_archive("weights", "zip", "weights")
+        run["weights"].upload("weights.zip")
+        shutil.rmtree("weights")
+        os.remove("weights.zip")
+
+    # Cleanup
     shutil.rmtree("videos")
 
 
@@ -169,7 +183,7 @@ def run_episode(env: gym.Env, agent: Agent, gamma: float, train=True, log=False)
                 agent.update_policy()
 
         if log:
-            agent.log(state, action)
+            agent.log(run)
 
         ep_return += (gamma**t) * reward
         undiscounted_ep_return += reward

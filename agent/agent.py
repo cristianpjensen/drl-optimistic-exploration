@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import gymnasium as gym
 import numpy as np
 import torch
+from neptune import Run
 
 from agent.replay_buffer import ReplayBuffer
 
@@ -70,8 +71,19 @@ class Agent(ABC):
         pass
 
     @abstractmethod
-    def log(self, state: np.ndarray, action: np.int64):
+    def log(self, run: Run):
         """Log anything relevant to the agent."""
+
+        pass
+
+    def save(self, dir: str) -> bool:
+        """Save the weights to the specified directory."""
+
+        return False
+
+    @abstractmethod
+    def load(self, dir: str):
+        """Load the weights from the specified directory, as created by save()."""
 
         pass
 
@@ -88,5 +100,11 @@ class RandomAgent(Agent):
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         pass
 
-    def log(self, state, action):
+    def log(self, run):
+        pass
+
+    def save(self, dir):
+        pass
+
+    def load(self, dir):
         pass

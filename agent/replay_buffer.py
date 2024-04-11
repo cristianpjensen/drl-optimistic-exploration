@@ -69,7 +69,7 @@ class ReplayBuffer:
         terminal = self.terminals[stacked_and_next_indices]
 
         # Mark any observation that contains `self.last_added` as terminal
-        terminal = terminal | (stacked_and_next_indices == self.last_added)
+        terminal = terminal | (stacked_and_next_indices.unsqueeze(1) == self.last_added)
 
         # If any frame is terminal, the whole observation is terminal
         terminal = terminal.reshape(self.batch_size, self.frame_stack + 1).any(dim=1)
