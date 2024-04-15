@@ -25,7 +25,7 @@ class AtariDQNAgent(Agent):
         self.num_updates = 0
 
         # Update target network every 10_000 steps at batch_size=32 (https://www.nature.com/articles/nature14236).
-        self.target_update_freq = 32_000 / self.replay_buffer.batch_size
+        self.target_update_freq = 32_000 // self.replay_buffer.batch_size
 
         # For logging the loss
         self.current_loss = 0
