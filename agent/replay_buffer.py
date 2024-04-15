@@ -111,7 +111,7 @@ class ReplayBuffer:
         return state[keep], action[keep], reward[keep], next_state[keep], terminal[keep]
 
     def __len__(self):
-        return self.entries
+        return min(self.entries, self.max_size)
 
     def is_ready(self):
         return len(self) >= self.min_size

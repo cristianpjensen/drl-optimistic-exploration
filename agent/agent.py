@@ -16,6 +16,7 @@ class Agent(ABC):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
+        batch_size: int = 32,
         frame_stack: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
@@ -24,6 +25,7 @@ class Agent(ABC):
         self.replay_buffer = ReplayBuffer(
             observation_space=observation_space,
             action_space=action_space,
+            batch_size=batch_size,
             frame_stack=frame_stack,
             device=device,
         )
