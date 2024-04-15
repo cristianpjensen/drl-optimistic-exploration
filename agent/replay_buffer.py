@@ -52,7 +52,7 @@ class ReplayBuffer:
         # Use the frame stack by sampling the last frame and then stacking the previous frames
 
         # Sample random indices
-        indices = torch.randint(self.frame_stack - 1, min(self.entries, self.max_size), (self.batch_size,))
+        indices = torch.randint(self.frame_stack - 1, min(self.entries, self.max_size - 1), (self.batch_size,))
 
         # Stack frames
         stacked_indices = (indices.reshape(-1, 1) + torch.arange(-(self.frame_stack - 1), 1)).flatten()
