@@ -40,7 +40,7 @@ def config():
     num_envs = 4
     batch_size = 32
     agent_id = "atari-dqn"
-    train_steps = 10000000
+    train_steps = 10_000_000
     test_episodes = 5
 
     # Every 10 training episodes, run a test episode
@@ -127,13 +127,29 @@ def main(
 
     # Add video recorder wrapper only on the first test episode
     envs.reset()
-    envs = RecordVideo(
-        envs,
-        "videos",
-        name_prefix="test",
-        disable_logger=True,
-        episode_trigger=lambda t: t == 0,
-    )
+
+    if "ALE" in env_name:
+        envs = gym.make_vec(
+            env_name,
+            render_mode="rgb_array", 
+            num_envs=num_envs, 
+            wrappers=[
+                # The ALE environments already have frame skipping
+                lambda env: AtariPreprocessing(env, frame_skip=1, screen_size=84),
+                lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0),
+                NormalizeReward,
+            ],
+        )
+    else:
+        envs = gym.vector.make(
+            env_name,
+            render_mode="rgb_array",
+            num_envs=num_envs,
+            wrappers=[
+                lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0),
+                NormalizeReward,
+            ],
+        )
 
     for ep in tqdm(range(test_episodes), desc="Testing"):
         discounted_return, undiscounted_return, _ = run_episode(envs, agent, gamma, train=False, log=False)
@@ -149,7 +165,7 @@ def main(
     saved = agent.save("weights")
     if saved:
         shutil.make_archive("weights", "zip", "weights")
-        run["weights"].upload("weights.zip")
+        run["weights"].upload("weights.zip", wait=True)
         shutil.rmtree("weights")
         os.remove("weights.zip")
 
