@@ -32,6 +32,8 @@ class AtariDQNAgent(Agent):
         self.logged_loss = True
 
     def act(self, state, train):
+        self.num_actions += state.shape[0]
+
         # Epsilon greedy
         if train and torch.rand(()) <= self.scheduler.value(self.num_actions):
             # Vectorized environment => sample multiple actions
@@ -40,8 +42,6 @@ class AtariDQNAgent(Agent):
                 action[i] = self.action_space.sample()
 
             return action
-
-        self.num_actions += state.shape[0]
 
         # The state and actions are vectorized
         state = torch.tensor(np.array(state), dtype=torch.float32, device=self.device)
