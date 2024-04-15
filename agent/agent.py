@@ -24,6 +24,8 @@ class Agent(ABC):
         self.observation_space = observation_space
         self.action_space = action_space
         self.replay_buffer = ReplayBuffer(
+            observation_space=observation_space,
+            action_space=action_space,
             max_size=buffer_size,
             frame_stack=frame_stack,
             batch_size=batch_size,
