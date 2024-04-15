@@ -13,12 +13,13 @@ class AtariDQNAgent(Agent):
     def setup(self, config):
         # Ref: https://www.nature.com/articles/nature14236
         self.q_network = AtariValueNetwork(n_actions=self.action_space.n).to(self.device)
-        self.q_target = AtariValueNetwork(n_actions=self.action_space.n).to(self.device)
-        self.gamma = config["gamma"]
+        self.q_target = AtariValueNetwork(n_actions=self.action_space.n).to(self.device).requires_grad_(False)
+        self.q_target.load_state_dict(self.q_network.state_dict())
 
         # Params from https://www.nature.com/articles/nature14236
         self.optim = Adam(self.q_network.parameters(), lr=0.00025, betas=(0.95, 0.95), eps=0.01)
         self.scheduler = LinearScheduler(1_000_000, 1, 0.1)
+        self.gamma = config["gamma"]
 
         self.num_actions = 0
         self.num_updates = 0
@@ -44,14 +45,14 @@ class AtariDQNAgent(Agent):
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         # Q(s, a)
         q_values = self.q_network(s_batch)
-        q_values = q_values[torch.arange(q_values.shape[0]).long(), a_batch.long()]
+        q_value = q_values[torch.arange(q_values.shape[0]).long(), a_batch.long()]
 
-        # max Q(s', a')
-        q_next_values = self.q_target(s_next_batch).max(1).values
-        target = r_batch + self.gamma * q_next_values
+        # Compute target value
+        q_next_value = self.q_target(s_next_batch).max(1).values
+        target = r_batch + (self.gamma * q_next_value) * (1 - terminal_batch.float())
 
         # Compute error
-        error = torch.square(target - q_values) * (1 - terminal_batch.float())
+        error = torch.square(target - q_value)
         loss = torch.mean(error)
 
         # Update weights

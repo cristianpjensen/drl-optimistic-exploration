@@ -134,10 +134,6 @@ def main(
     shutil.rmtree("videos")
 
 
-# TODO: Mark loss of life as terminal state, but don't reset the environment. Supposedly, this
-# leads to more efficient training, according to https://github.com/jacobaustin123/pytorch-dqn.
-
-
 def run_episode(env: gym.Env, agent: Agent, gamma: float, train=True, log=False):
     """Run an episode in the environment with the given agent.
 

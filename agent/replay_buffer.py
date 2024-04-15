@@ -95,24 +95,20 @@ class ReplayBuffer:
         next_state = self.states[stacked_indices + 1]
         next_state = next_state.reshape(self.batch_size, self.frame_stack, *next_state.shape[1:])
 
-        # Mark as terminal if any of the frames in the stack or next state is terminal. These should
-        # not be used for learning.
-        stacked_and_next_indices = (indices.reshape(-1, 1) + torch.arange(-(self.frame_stack - 1), 2)).flatten()
-        next_terminal = self.terminals[stacked_and_next_indices]
-
-        # If any frame is terminal, the whole observation is terminal
-        next_terminal = next_terminal.reshape(self.batch_size, self.frame_stack + 1).any(dim=1)
-
+        # Action and rewards
         action = self.actions[indices]
         reward = self.rewards[indices]
 
-        # Check for overlapping episodes, which is the case if the current state is terminal
+        # Terminal if next state is terminal
+        terminal = self.terminals[indices + 1]
+
+        # Check for overlapping episodes by checking whether any of the frames of the state are terminal
         discard = self.terminals[stacked_indices]
-        discard = discard.reshape(self.batch_size, self.frame_stack + 1).any(dim=1)
+        discard = discard.reshape(self.batch_size, self.frame_stack).any(dim=1)
 
         keep = discard.logical_not()
 
-        return state[keep], action[keep], reward[keep], next_state[keep], next_terminal[keep]
+        return state[keep], action[keep], reward[keep], next_state[keep], terminal[keep]
 
     def __len__(self):
         return self.entries
