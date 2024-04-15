@@ -1,11 +1,11 @@
 import os
 import shutil
+from collections import deque
 
 import gymnasium as gym
 import neptune
-import torch
 import numpy as np
-from collections import deque
+import torch
 from dotenv import load_dotenv
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
 from gymnasium.wrappers.normalize import NormalizeReward
@@ -39,13 +39,15 @@ ex.observers.append(NeptuneObserver(run=run))
 
 @ex.config
 def config():
-    env_name = "ALE/Breakout-v5"
+    env_name = "ALE/SpaceInvaders-v5"
     agent_id = "atari-dqn"
-    train_steps = 1000000
+    train_steps = 10000000
     test_episodes = 5
 
     # Every 10 training episodes, run a test episode
     train_test_interval = 10
+
+    # Default: 0.99 (https://www.nature.com/articles/nature14236).
     gamma = 0.99
 
     agent_config = {
@@ -177,8 +179,9 @@ def run_episode(env: gym.Env, agent: Agent, gamma: float, train=True, log=False)
         next_state, reward, terminated, truncated, _ = env.step(action)
 
         if train:
-            agent.replay_buffer.push(state, action, reward, terminal=terminated or truncated)
+            agent.replay_buffer.push(state, action, reward, terminal=terminated)
 
+            # Update frequency 4: https://www.nature.com/articles/nature14236
             if agent.replay_buffer.is_ready() and t % 4 == 0:
                 agent.update_policy()
 

@@ -1,4 +1,5 @@
 import os
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -8,22 +9,22 @@ from agent.agent import Agent
 from agent.utils.scheduler import LinearScheduler
 
 
-# TODO: The agent does not seem to be improving during training: debug.
-
-
 class AtariDQNAgent(Agent):
     def setup(self, config):
         # Ref: https://www.nature.com/articles/nature14236
-        self.q_network = AtariValueNetwork(n_actions=self.action_space.n).to(self.device) # type: ignore
-        self.q_target = AtariValueNetwork(n_actions=self.action_space.n).to(self.device) # type: ignore
-        self.optim = Adam(self.q_network.parameters(), lr=0.00025, betas=(0.95, 0.95), eps=0.01)
+        self.q_network = AtariValueNetwork(n_actions=self.action_space.n).to(self.device)
+        self.q_target = AtariValueNetwork(n_actions=self.action_space.n).to(self.device)
         self.gamma = config["gamma"]
 
+        # Params from https://www.nature.com/articles/nature14236
+        self.optim = Adam(self.q_network.parameters(), lr=0.00025, betas=(0.95, 0.95), eps=0.01)
         self.scheduler = LinearScheduler(1_000_000, 1, 0.1)
-        self.num_actions = 0
 
+        self.num_actions = 0
         self.num_updates = 0
-        self.target_update_freq = 1_000
+
+        # Update target network every 10_000 steps (https://www.nature.com/articles/nature14236).
+        self.target_update_freq = 10_000
 
         # For logging the loss
         self.current_loss = 0
