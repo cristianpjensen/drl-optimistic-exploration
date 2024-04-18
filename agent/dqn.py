@@ -56,11 +56,10 @@ class AtariDQNAgent(Agent):
 
         # Compute target value
         q_next_value = self.q_target(s_next_batch).max(1).values
-        target = r_batch + (self.gamma * q_next_value) * (1 - terminal_batch.float())
+        target = r_batch.clip(-1, 1) + (self.gamma * q_next_value) * (1 - terminal_batch.float())
 
         # Compute error
         error = torch.square(target - q_value)
-        error = error.clip(-1, 1)
         loss = torch.mean(error)
 
         # Update weights
@@ -114,5 +113,6 @@ class AtariValueNetwork(nn.Module):
 
     def forward(self, state):
         state = state.float() / 255.0
+        state = state * 2 - 1  # Normalize
 
         return self.net(state)
