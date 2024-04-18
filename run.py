@@ -6,9 +6,9 @@ import neptune
 import torch
 from dotenv import load_dotenv
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
-from gymnasium.wrappers.normalize import NormalizeReward
 from gymnasium.wrappers.record_video import RecordVideo
 from gymnasium.wrappers.frame_stack import FrameStack
+from gymnasium.wrappers.flatten_observation import FlattenObservation
 from neptune.integrations.sacred import NeptuneObserver
 from sacred import Experiment
 from tqdm import tqdm
@@ -38,6 +38,8 @@ def config():
     num_envs = 4
     batch_size = 32
     agent_id = "atari-dqn"
+    min_buffer_size = 50_000
+    max_buffer_size = 1_000_000
     train_steps = 50_000_000
     test_episodes = 5
 
@@ -51,6 +53,13 @@ def config():
         "gamma": gamma,
     }
 
+    env = gym.make(env_name)
+    if hasattr(env.observation_space, "n"):
+        agent_config["n_states"] = env.observation_space.n
+
+    if hasattr(env.action_space, "n"):
+        agent_config["n_actions"] = env.action_space.n
+
 
 @ex.main
 def main(
@@ -59,6 +68,8 @@ def main(
     batch_size: int,
     agent_id: str,
     agent_config: dict,
+    min_buffer_size: int,
+    max_buffer_size: int,
     train_steps: int,
     test_episodes: int,
     train_test_interval: int,
@@ -81,6 +92,8 @@ def main(
         agent = AGENTS[agent_id](
             envs.single_observation_space,
             envs.single_action_space,
+            min_buffer_size=min_buffer_size,
+            max_buffer_size=max_buffer_size,
             batch_size=batch_size,
             device=device,
         )
@@ -89,17 +102,20 @@ def main(
             env_name,
             render_mode="rgb_array",
             num_envs=num_envs,
-            wrappers=[lambda env: FrameStack(env, 4)]
+            wrappers=[FlattenObservation, lambda env: FrameStack(env, 1)]
         )
         agent = AGENTS[agent_id](
             envs.single_observation_space,
             envs.single_action_space,
+            min_buffer_size=min_buffer_size,
+            max_buffer_size=max_buffer_size,
             batch_size=batch_size,
             device=device,
         )
 
-    envs.metadata["render_fps"] = 30
     agent.setup(agent_config)
+
+    envs.metadata["render_fps"] = 30
 
     timesteps_trained = 0
     episodes_trained = 0
@@ -126,28 +142,29 @@ def main(
     if "ALE" in env_name:
         envs = gym.make_vec(
             env_name,
-            render_mode="rgb_array", 
+            render_mode="human", 
             num_envs=num_envs, 
             wrappers=[
                 # The ALE environments already have frame skipping
                 lambda env: AtariPreprocessing(env, frame_skip=1, screen_size=84),
+                lambda env: FrameStack(env, 4),
                 lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0),
-                NormalizeReward,
             ],
         )
     else:
         envs = gym.vector.make(
             env_name,
-            render_mode="rgb_array",
+            render_mode="human",
             num_envs=num_envs,
             wrappers=[
-                lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0),
-                NormalizeReward,
+                FlattenObservation,
+                lambda env: FrameStack(env, 1),
+                # lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=False, episode_trigger=lambda t: t == 0),
             ],
         )
 
     for ep in tqdm(range(test_episodes), desc="Testing"):
-        discounted_return, undiscounted_return, _ = run_episode(envs, agent, gamma, train=False, log=False)
+        discounted_return, undiscounted_return, _ = run_episode(envs, agent, gamma, train=False)
         for i in range(envs.num_envs):
             run["test/discounted_return"].append(discounted_return[i])
             run["test/undiscounted_return"].append(undiscounted_return[i])
