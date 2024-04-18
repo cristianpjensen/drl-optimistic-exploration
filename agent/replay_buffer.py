@@ -119,7 +119,7 @@ class ReplayBuffer:
         indices = torch.multinomial(self.sample_prob[:-2].float(), self.batch_size)
         stacked_indices = indices.reshape(-1, 1) + torch.arange(-(self.frame_stack - 1), 1)
 
-        return self.frames[stacked_indices], self.actions[indices], self.rewards[indices], self.frames[stacked_indices+1], self.terminals[indices]
+        return self.frames[stacked_indices], self.actions[indices], self.rewards[indices], self.frames[stacked_indices+1], self.terminals[indices+1]
 
     def __len__(self):
         return min(self.entries, self.max_size)
