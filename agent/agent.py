@@ -17,7 +17,6 @@ class Agent(ABC):
         observation_space: gym.Space,
         action_space: gym.Space,
         batch_size: int = 32,
-        frame_stack: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
         self.observation_space = observation_space
@@ -26,7 +25,6 @@ class Agent(ABC):
             observation_space=observation_space,
             action_space=action_space,
             batch_size=batch_size,
-            frame_stack=frame_stack,
             device=device,
         )
         self.device = device

@@ -87,7 +87,8 @@ class AtariDQNAgent(Agent):
         return True
 
     def load(self, dir):
-        torch.load(self.q_network.state_dict(), f"{dir}/q_network.pt")
+        self.q_target.load_state_dict(torch.load(f"{dir}/q_network.pt", map_location=self.device))
+        self.q_network.load_state_dict(torch.load(f"{dir}/q_network.pt", map_location=self.device))
 
 
 class AtariValueNetwork(nn.Module):
@@ -104,10 +105,11 @@ class AtariValueNetwork(nn.Module):
             nn.Conv2d(32, 64, kernel_size=4, stride=2), # Output: 64 x 9 x 9
             nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1), # Output: 64 x 7 x 7
-            nn.Flatten(),
-            nn.Linear(7 * 7 * 64, 512),
             nn.ReLU(),
-            nn.Linear(512, n_actions)
+            nn.Flatten(),
+            nn.Linear(7 * 7 * 64, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, n_actions)
         )
 
     def forward(self, state):
