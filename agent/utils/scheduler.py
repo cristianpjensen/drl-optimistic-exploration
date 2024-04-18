@@ -1,19 +1,26 @@
+from typing import List, Tuple
+
 class LinearScheduler():
-    """Linear interpolation between `start` and `end` over `T` timesteps, after which `end` is
-    returned.
+    """Linear interpolation between points."""
 
-    Args:
-        T (int): The total number of timesteps for the interpolation.
-        start (float): The starting value of the interpolation.
-        end (float): The ending value of the interpolation.
-
-    """
-
-    def __init__(self, T: int, start: float, end: float):
-        self.timesteps = T
-        self.start = start
-        self.end = end
+    def __init__(self, points: List[Tuple[int, float]]):
+        self.points = points
 
     def value(self, t):
-        fraction = min(t / self.timesteps, 1.0)
-        return self.start + fraction * (self.end - self.start)
+        for i in range(len(self.points) - 1):
+            start_t, start_v = self.points[i]
+            end_t, end_v = self.points[i + 1]
+
+            if t >= start_t and t < end_t:
+                fraction = (t - start_t) / (end_t - start_t)
+                return start_v + fraction * (end_v - start_v)
+
+        return self.points[-1][1]
+
+
+if __name__ == "__main__":
+    # Testing
+    scheduler = LinearScheduler([(0, 1), (10, 0.1), (100, 0.01)])
+
+    for t in range(0, 101):
+        print(f"{t}, {scheduler.value(t)}")

@@ -18,7 +18,7 @@ class AtariDQNAgent(Agent):
 
         # Params from https://www.nature.com/articles/nature14236
         self.optim = Adam(self.q_network.parameters(), lr=0.00025, betas=(0.95, 0.95), eps=0.01)
-        self.scheduler = LinearScheduler(1_000_000, 1, 0.1)
+        self.scheduler = LinearScheduler([(0, 1), (1_000_000, 0.1), (25_000_000, 0.01)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
@@ -98,19 +98,25 @@ class AtariValueNetwork(nn.Module):
 
         self.net = nn.Sequential(
             nn.Conv2d(4, 32, kernel_size=8, stride=4),  # Output: 32 x 20 x 20
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2), # Output: 64 x 9 x 9
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1), # Output: 64 x 7 x 7
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Flatten(),
             nn.Linear(7 * 7 * 64, 1024),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(1024, n_actions)
         )
 
+        self.net.apply(self.init_weights)
+
+    def init_weights(self, m):
+        if isinstance(m, (nn.Conv2d, nn.Linear)):
+            nn.init.kaiming_normal_(m.weight)
+
     def forward(self, state):
         state = state.float() / 255.0
-        state = state * 2 - 1  # Normalize
+        state = state * 2 - 1  # Normalize [-1, 1]
 
         return self.net(state)
