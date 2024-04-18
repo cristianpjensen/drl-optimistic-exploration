@@ -21,18 +21,19 @@ class TabularQLearningAgent(Agent):
         self.loss = 0
 
     def act(self, state, train):
-        self.num_actions += state.shape[0]
-
-        if train and torch.rand(()) <= self.scheduler.value(self.num_actions):
-            # Vectorized environment => sample multiple actions
-            action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
-            for i in range(state.shape[0]):
-                action[i] = self.action_space.sample()
-
-            return action
-
         state = torch.from_numpy(state).argmax(dim=-1).squeeze(1)
-        return np.int64(self.q_values[state].argmax(dim=1).cpu())
+        q_values = self.q_values[state]
+
+        action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
+        for i in range(state.shape[0]):
+            self.num_actions += 1
+
+            if train and np.random.random() < self.scheduler.value(self.num_actions):
+                action[i] = self.action_space.sample()
+            else:
+                action[i] = torch.argmax(q_values[i]).cpu().numpy()
+
+        return action
 
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         s_batch = s_batch.argmax(dim=-1).squeeze(1)

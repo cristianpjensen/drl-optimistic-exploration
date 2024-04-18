@@ -32,22 +32,20 @@ class AtariDQNAgent(Agent):
         self.logged_loss = True
 
     def act(self, state, train):
-        self.num_actions += state.shape[0]
+        with torch.no_grad():
+            state = torch.tensor(state, device=self.device)
+            q_values = self.q_network(state)
 
-        # Epsilon greedy
-        if train and torch.rand(()) <= self.scheduler.value(self.num_actions):
-            # Vectorized environment => sample multiple actions
-            action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
-            for i in range(state.shape[0]):
+        action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
+        for i in range(state.shape[0]):
+            self.num_actions += 1
+
+            if train and np.random.random() < self.scheduler.value(self.num_actions):
                 action[i] = self.action_space.sample()
+            else:
+                action[i] = torch.argmax(q_values[i]).cpu().numpy()
 
-            return action
-
-        # The state and actions are vectorized
-        state = torch.tensor(np.array(state), dtype=torch.float32, device=self.device)
-        q_values = self.q_network(state)
-
-        return np.int64(q_values.argmax(dim=1).cpu())
+        return action
 
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         # Q(s, a)
@@ -56,10 +54,10 @@ class AtariDQNAgent(Agent):
 
         # Compute target value
         q_next_value = self.q_target(s_next_batch).max(1).values
-        target = r_batch.clip(-1, 1) + (self.gamma * q_next_value) * (1 - terminal_batch.float())
+        target = r_batch + (self.gamma * q_next_value) * (1 - terminal_batch.float())
 
         # Compute error
-        error = torch.square(target - q_value)
+        error = torch.square(target - q_value).clip(-1, 1)
         loss = torch.mean(error)
 
         # Update weights

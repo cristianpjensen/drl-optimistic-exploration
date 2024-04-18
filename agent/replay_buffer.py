@@ -16,8 +16,6 @@ class ReplayBuffer:
             (https://www.nature.com/articles/nature14236).
         batch_size: Number of samples to return when sampling. Default: 32
             (https://www.nature.com/articles/nature14236).
-        frame_stack: Number of frames to stack when sampling. Default: 1, set to 4 for Atari games
-           (https://www.nature.com/articles/nature14236).
         device: CUDA if available, otherwise CPU.
 
     """

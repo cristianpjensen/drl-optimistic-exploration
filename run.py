@@ -131,7 +131,6 @@ def main(
 
             run["train/discounted_return"].append(step=timesteps_trained, value=discounted_return.mean())
             run["train/undiscounted_return"].append(step=timesteps_trained, value=undiscounted_return.mean())
-            run["train/replay_buffer_size"].append(step=timesteps_trained, value=len(agent.replay_buffer))
 
             pbar.update(timesteps)
             episodes_trained += 1
