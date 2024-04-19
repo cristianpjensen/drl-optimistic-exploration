@@ -141,7 +141,7 @@ def main(
     if "ALE" in env_name:
         envs = gym.make_vec(
             env_name,
-            render_mode="human", 
+            render_mode="rgb_array", 
             num_envs=num_envs, 
             wrappers=[
                 # The ALE environments already have frame skipping
