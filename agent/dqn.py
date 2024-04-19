@@ -50,7 +50,7 @@ class AtariDQNAgent(Agent):
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         # Q(s, a)
         q_values = self.q_network(s_batch)
-        q_value = q_values[torch.arange(q_values.shape[0]).long(), a_batch.long()]
+        q_value = q_values[range(q_values.shape[0]), a_batch]
 
         # Compute target value
         q_next_value = self.q_target(s_next_batch).max(1).values
