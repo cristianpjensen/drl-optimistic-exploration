@@ -1,9 +1,11 @@
 import os
 import shutil
+from typing import Tuple
 
 import gymnasium as gym
 import neptune
 import torch
+import numpy as np
 from dotenv import load_dotenv
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
 from gymnasium.wrappers.record_video import RecordVideo
@@ -12,11 +14,12 @@ from gymnasium.wrappers.flatten_observation import FlattenObservation
 from neptune.integrations.sacred import NeptuneObserver
 from sacred import Experiment
 from tqdm import tqdm
-from utils import run_episode
 
 from agent import AGENTS
+from agent.agent import Agent
 
 load_dotenv()
+
 
 ex = Experiment()
 
@@ -26,22 +29,26 @@ run = neptune.init_run(
     api_token=os.environ["NEPTUNE_API_TOKEN"],
     source_files=["**/*.py"],
 )
-ex.observers.append(NeptuneObserver(run=run))
+ex.observers.append(NeptuneObserver(run))
 
 
 @ex.config
 def config():
     env_name = "ALE/SpaceInvaders-v5"
+    env_config = {}
+
     # By using 4 environments, it is the same as updating every 4th timestep, as in
     # (https://www.nature.com/articles/nature14236). Make sure if you use more environments, you
     # update the batch size accordingly (e.g. if num_envs=8, batch_size=64).
     num_envs = 4
     batch_size = 32
     agent_id = "atari-dqn"
-    min_buffer_size = 50_000
+    min_buffer_size = 100
     max_buffer_size = 1_000_000
     train_steps = 50_000_000
     test_episodes = 5
+
+    train_on_current_transition = False
 
     # Every 10 training episodes, run a test episode
     train_test_interval = 10
@@ -49,25 +56,14 @@ def config():
     # Default: 0.99 (https://www.nature.com/articles/nature14236).
     gamma = 0.99
 
-    agent_config = {
-        "gamma": gamma,
-    }
-
-    env = gym.make(env_name)
-    if hasattr(env.observation_space, "n"):
-        agent_config["n_states"] = env.observation_space.n
-
-    if hasattr(env.action_space, "n"):
-        agent_config["n_actions"] = env.action_space.n
-
 
 @ex.main
 def main(
     env_name: str,
+    env_config: dict,
     num_envs: int,
     batch_size: int,
     agent_id: str,
-    agent_config: dict,
     min_buffer_size: int,
     max_buffer_size: int,
     train_steps: int,
@@ -81,7 +77,7 @@ def main(
     if "ALE" in env_name:
         envs = gym.make_vec(
             env_name,
-            render_mode="rgb_array", 
+            **env_config,
             num_envs=num_envs, 
             wrappers=[
                 # The ALE environments already have frame skipping
@@ -98,9 +94,9 @@ def main(
             device=device,
         )
     else:
-        envs = gym.vector.make(
+        envs = gym.make_vec(
             env_name,
-            render_mode="rgb_array",
+            **env_config,
             num_envs=num_envs,
             wrappers=[FlattenObservation, lambda env: FrameStack(env, 1)]
         )
@@ -113,12 +109,20 @@ def main(
             device=device,
         )
 
-    agent.setup(agent_config)
+    config = { "gamma": gamma, "train_steps": train_steps }
+    if hasattr(envs.single_observation_space, "n"):
+        config["n_states"] = envs.single_observation_space.n
 
+    if hasattr(envs.single_action_space, "n"):
+        config["n_actions"] = envs.single_action_space.n
+
+    agent.setup(config)
     envs.metadata["render_fps"] = 30
 
     timesteps_trained = 0
     episodes_trained = 0
+
+    # TODO: Make more efficient by not waiting for all environments to be done, but rather continue.
 
     with tqdm(total=train_steps, desc="Training") as pbar:
         while timesteps_trained < train_steps:
@@ -141,6 +145,7 @@ def main(
     if "ALE" in env_name:
         envs = gym.make_vec(
             env_name,
+            **env_config,
             render_mode="rgb_array", 
             num_envs=num_envs, 
             wrappers=[
@@ -151,14 +156,15 @@ def main(
             ],
         )
     else:
-        envs = gym.vector.make(
+        envs = gym.make_vec(
             env_name,
-            render_mode="human",
+            **env_config,
+            render_mode="rgb_array",
             num_envs=num_envs,
             wrappers=[
                 FlattenObservation,
                 lambda env: FrameStack(env, 1),
-                # lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=False, episode_trigger=lambda t: t == 0),
+                lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0),
             ],
         )
 
@@ -182,6 +188,74 @@ def main(
 
     # Cleanup
     shutil.rmtree("videos")
+
+
+def run_episode(
+    env: gym.Env,
+    agent: Agent,
+    gamma: float,
+    train=True,
+    train_on_current_transition=False,
+    log_arg=None,
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    """Run an episode in the environment with the given agent.
+
+    Args:
+        env: Environment.
+        agent: Agent.
+        gamma: Discount factor.
+        train: If enabled, the transitions are added to the replay buffer, and
+            the agent's policy is updated each iteration.
+        train_on_current_transition: If enabled, the agent is trained on the
+            current transition only, and not from the replay buffer.
+        log: If enabled, call the log method of the agent, which logs anything
+            relevant to the agent.
+
+    Returns:
+        - The discounted return of the episode.
+        - The undiscounted return of the episode.
+        - Number of steps
+
+    """
+
+    state, _ = env.reset()
+    ep_return = 0
+    undiscounted_ep_return = 0
+    t = 0
+
+    done = np.array([False] * env.num_envs)
+    while not np.all(done):
+        action = agent.act(state, train)
+        next_state, reward, terminated, truncated, _ = env.step(action)
+
+        if train:
+            for i in range(env.num_envs):
+                if not done[i]:
+                    agent.replay_buffer.push(state[i], action[i], reward[i], terminated[i])
+
+            if train_on_current_transition:
+                state_ = torch.tensor(np.array(state))
+                action_ = torch.tensor(np.array(action))
+                reward_ = torch.tensor(np.array(reward))
+                next_state_ = torch.tensor(np.array(next_state))
+                terminated_ = torch.tensor(np.array(terminated))
+                agent.train(state_, action_, reward_, next_state_, terminated_)
+
+            elif agent.replay_buffer.is_ready():
+                agent.update_policy()
+
+        if log_arg is not None:
+            agent.log(log_arg)
+
+        ep_return += (gamma**t) * reward
+        undiscounted_ep_return += reward
+        t += int(np.logical_not(done).sum())
+
+        state = next_state
+        done = done | terminated | truncated
+
+    return ep_return, undiscounted_ep_return, t
+
 
 if __name__ == "__main__":
     ex.run_commandline()

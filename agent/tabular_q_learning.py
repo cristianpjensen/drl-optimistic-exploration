@@ -11,11 +11,10 @@ class TabularQLearningAgent(Agent):
     def setup(self, config):
         # Q-values for each state-action pair
         self.q_values = torch.zeros((config["n_states"], config["n_actions"]))
-        self.epsilon = 0.1
         self.lr = 0.01
         self.gamma = config["gamma"]
 
-        self.scheduler = LinearScheduler(10_000, 1, 0.1)
+        self.scheduler = LinearScheduler([(0, 1), (50_000, 0.1)])
 
         self.num_actions = 0
         self.loss = 0
@@ -37,12 +36,10 @@ class TabularQLearningAgent(Agent):
 
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         s_batch = s_batch.argmax(dim=-1).squeeze(1)
-        r_batch = r_batch.squeeze(1)
         s_next_batch = s_next_batch.argmax(dim=-1).squeeze(1)
-        terminal_batch = terminal_batch.squeeze(1)
 
         q_values = self.q_values[s_batch]
-        q_value = q_values[torch.arange(q_values.shape[0]).long(), a_batch.long()]
+        q_value = q_values[range(q_values.shape[0]), a_batch.long()]
         q_next_value = self.q_values[s_next_batch].max(1).values
 
         temporal_difference = r_batch + self.gamma * q_next_value * (1 - terminal_batch.float()) - q_value

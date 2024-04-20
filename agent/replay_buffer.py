@@ -44,8 +44,8 @@ class ReplayBuffer:
 
         self.frames = torch.zeros((max_size, *frame_shape), dtype=obs_type, device=device)
         self.actions = torch.zeros((max_size, *action_space.shape), dtype=act_type, device=device)
-        self.rewards = torch.zeros((max_size, 1), dtype=torch.float32, device=device)
-        self.terminals = torch.zeros((max_size, 1), dtype=torch.bool, device=device)
+        self.rewards = torch.zeros((max_size,), dtype=torch.float32, device=device)
+        self.terminals = torch.zeros((max_size,), dtype=torch.bool, device=device)
 
         # Either 1 or 0, depending on whether the index would result in a valid frame stack that has
         # no overlapping
@@ -97,7 +97,8 @@ class ReplayBuffer:
             self.frames[index] = torch.tensor(state[-1])
 
         self.actions[index] = torch.tensor(action)
-        self.rewards[index] = torch.tensor(reward)
+        # Bin rewards to { -1, 0, 1 } by its sign
+        self.rewards[index] = torch.sign(torch.tensor(reward))
         self.terminals[index] = torch.tensor(terminal)
 
         # Make sure that the next `frame_stack` frames are not sampled, because that would result in

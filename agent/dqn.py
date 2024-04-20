@@ -3,6 +3,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import Adam
 
 from agent.agent import Agent
@@ -12,20 +13,18 @@ from agent.utils.scheduler import LinearScheduler
 class AtariDQNAgent(Agent):
     def setup(self, config):
         # Ref: https://www.nature.com/articles/nature14236
-        self.q_network = AtariValueNetwork(n_actions=self.action_space.n).to(self.device)
-        self.q_target = AtariValueNetwork(n_actions=self.action_space.n).to(self.device).requires_grad_(False)
+        self.q_network = AtariValueNetwork(n_actions=config["n_actions"]).to(self.device)
+        self.q_target = AtariValueNetwork(n_actions=config["n_actions"]).to(self.device).requires_grad_(False)
         self.q_target.load_state_dict(self.q_network.state_dict())
 
         # Params from https://www.nature.com/articles/nature14236
-        self.optim = Adam(self.q_network.parameters(), lr=0.00025, betas=(0.95, 0.95), eps=0.01)
-        self.scheduler = LinearScheduler([(0, 1), (1_000_000, 0.1), (25_000_000, 0.01)])
+        self.optim = Adam(self.q_network.parameters(), lr=1e-4)
+        self.scheduler = LinearScheduler([(0, 1), (config["train_steps"], 0.05)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
         self.num_updates = 0
-
-        # Update target network every 10_000 steps at batch_size=32 (https://www.nature.com/articles/nature14236).
-        self.target_update_freq = 32_000 // self.replay_buffer.batch_size
+        self.target_update_freq = 10_000
 
         # For logging the loss
         self.current_loss = 0
@@ -45,38 +44,42 @@ class AtariDQNAgent(Agent):
             else:
                 action[i] = torch.argmax(q_values[i]).cpu().numpy()
 
+            # Update target network every 10_000 actions
+            if self.num_actions % self.target_update_freq == 0:
+                self.q_target.load_state_dict(self.q_network.state_dict())
+
         return action
 
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
-        # Q(s, a)
-        q_values = self.q_network(s_batch)
-        q_value = q_values[range(q_values.shape[0]), a_batch]
-
         # Compute target value
-        q_next_value = self.q_target(s_next_batch).max(1).values
-        target = r_batch + (self.gamma * q_next_value) * (1 - terminal_batch.float())
+        with torch.no_grad():
+            q_next_values = self.q_target(s_next_batch)
+            q_next_values, _ = q_next_values.max(dim=1)
+            target_q_values = r_batch + (1 - terminal_batch.float()) * self.gamma * q_next_values
 
-        # Compute error
-        error = torch.square(target - q_value).clip(-1, 1)
-        loss = torch.mean(error)
+        current_q_values = self.q_network(s_batch)
+        current_q_values = torch.gather(current_q_values, dim=1, index=a_batch.unsqueeze(-1))
+        current_q_values = current_q_values.squeeze(-1)
+
+        loss = F.smooth_l1_loss(current_q_values, target_q_values)
 
         # Update weights
         self.optim.zero_grad()
         loss.backward()
+        # Clip gradient norms
+        nn.utils.clip_grad_norm_(self.q_network.parameters(), 10)
         self.optim.step()
-
-        # Periodically update target network
-        self.num_updates += 1
-        if self.num_updates % self.target_update_freq == 0:
-            self.q_target.load_state_dict(self.q_network.state_dict())
 
         self.current_loss = loss
         self.logged_loss = False
 
     def log(self, run):
         if not self.logged_loss:
-            run["train/loss"].append(step=self.num_updates, value=self.current_loss)
+            run["train/loss"].append(torch.mean(self.current_loss))
             self.logged_loss = True
+
+        run["train/num_actions"].append(self.num_actions)
+        run["train/num_updates"].append(self.num_updates)
 
     def save(self, dir) -> bool:
         os.makedirs(dir, exist_ok=True)
@@ -98,25 +101,17 @@ class AtariValueNetwork(nn.Module):
 
         self.net = nn.Sequential(
             nn.Conv2d(4, 32, kernel_size=8, stride=4),  # Output: 32 x 20 x 20
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2), # Output: 64 x 9 x 9
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1), # Output: 64 x 7 x 7
-            nn.LeakyReLU(),
+            nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(7 * 7 * 64, 1024),
-            nn.LeakyReLU(),
-            nn.Linear(1024, n_actions)
+            nn.Linear(7 * 7 * 64, 512),
+            nn.ReLU(),
+            nn.Linear(512, n_actions)
         )
-
-        self.net.apply(self.init_weights)
-
-    def init_weights(self, m):
-        if isinstance(m, (nn.Conv2d, nn.Linear)):
-            nn.init.kaiming_normal_(m.weight)
 
     def forward(self, state):
         state = state.float() / 255.0
-        state = state * 2 - 1  # Normalize [-1, 1]
-
         return self.net(state)
