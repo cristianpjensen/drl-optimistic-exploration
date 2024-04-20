@@ -54,6 +54,11 @@ class ReplayBuffer:
         # Keep track of how many frames have been added
         self.entries = 0
 
+    def push_batch(self, state, action, reward, terminal):
+        """Pushes a batch of transitions to the replay buffer."""
+        for s, a, r, t in zip(state, action, reward, terminal):
+            self.push(s, a, r, t)
+
     def push(self, state, action, reward, terminal):
         """Pushes to the replay buffer, in a manner such that we do not store duplicate frames and
         have no frame stacks that contain frames from more than one episode."""

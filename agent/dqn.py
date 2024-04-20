@@ -37,7 +37,8 @@ class AtariDQNAgent(Agent):
 
         action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
         for i in range(state.shape[0]):
-            self.num_actions += 1
+            if train:
+                self.num_actions += 1
 
             if train and np.random.random() < self.scheduler.value(self.num_actions):
                 action[i] = self.action_space.sample()
@@ -70,6 +71,7 @@ class AtariDQNAgent(Agent):
         nn.utils.clip_grad_norm_(self.q_network.parameters(), 10)
         self.optim.step()
 
+        self.num_updates += 1
         self.current_loss = loss
         self.logged_loss = False
 
