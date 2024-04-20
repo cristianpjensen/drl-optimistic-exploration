@@ -206,7 +206,7 @@ def train_agent(
                 timesteps_trained += 1
 
                 # Update episode history
-                episode_histories[i].append((state[i], action[i], reward[i], next_state[i], done[i]))
+                episode_histories[i].append((state[i], action[i], reward[i], terminated[i]))
 
                 # Update policy
                 if agent.replay_buffer.is_ready() and timesteps_trained % 4 == 0:
