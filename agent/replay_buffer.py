@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, List
 
 import gymnasium as gym
 import torch
@@ -54,10 +54,10 @@ class ReplayBuffer:
         # Keep track of how many frames have been added
         self.entries = 0
 
-    def push_batch(self, state, action, reward, terminal):
-        """Pushes a batch of transitions to the replay buffer."""
-        for s, a, r, t in zip(state, action, reward, terminal):
-            self.push(s, a, r, t)
+    def push_episode(self, episode: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]):
+        """Pushes an entire episode to the replay buffer."""
+        for state, action, reward, terminal in episode:
+            self.push(state, action, reward, terminal)
 
     def push(self, state, action, reward, terminal):
         """Pushes to the replay buffer, in a manner such that we do not store duplicate frames and

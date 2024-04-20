@@ -187,6 +187,8 @@ def train_agent(
     ep_return = np.zeros(envs.num_envs)
     discounted_ep_return = np.zeros(envs.num_envs)
 
+    episode_histories = [[] for _ in range(envs.num_envs)]
+
     with tqdm(total=total_steps, desc="Training") as pbar:
         while timesteps_trained < total_steps:
             # Sample action and step in the environment
@@ -198,12 +200,13 @@ def train_agent(
             discounted_ep_return += (gamma ** ep_timesteps) * reward
             ep_timesteps += 1
 
-            agent.replay_buffer.push_batch(state, action, reward, terminated)
-
             done = terminated | truncated
 
             for i in range(envs.num_envs):
                 timesteps_trained += 1
+
+                # Update episode history
+                episode_histories[i].append((state[i], action[i], reward[i], next_state[i], done[i]))
 
                 # Update policy
                 if agent.replay_buffer.is_ready() and timesteps_trained % 4 == 0:
@@ -216,10 +219,13 @@ def train_agent(
                     run["train/test_discounted_return"].append(step=timesteps_trained, value=test_discounted_ep_return[0])
                     run["train/test_steps_alive"].append(step=timesteps_trained, value=test_timesteps[0])
 
-                # Report statistics of finished episodes
+                # Report statistics of finished episodes and add to replay buffer
                 if done[i]:
                     run["train/undiscounted_return"].append(step=timesteps_trained, value=ep_return[i])
                     run["train/discounted_return"].append(step=timesteps_trained, value=discounted_ep_return[i])
+
+                    agent.replay_buffer.push_episode(episode_histories[i])
+                    episode_histories[i] = []
 
             # Reset done environments
             ep_timesteps[done] = 0
@@ -266,9 +272,6 @@ def test_agent(
             # Check if done and update state
             done = terminated[0] or truncated[0]
             state = next_state
-
-        if done[i]:
-            state, _ = envs.reset()
 
     return ep_return, discounted_ep_return, timesteps
 
