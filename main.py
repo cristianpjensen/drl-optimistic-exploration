@@ -221,7 +221,8 @@ def run_episode(
     state, _ = env.reset()
     ep_return = 0
     undiscounted_ep_return = 0
-    t = 0
+    timestep = 0
+    actions = 0
 
     done = np.array([False] * env.num_envs)
     while not np.all(done):
@@ -247,14 +248,15 @@ def run_episode(
         if log_arg is not None:
             agent.log(log_arg)
 
-        ep_return += (gamma**t) * reward
+        ep_return += (gamma**timestep) * reward
         undiscounted_ep_return += reward
-        t += int(np.logical_not(done).sum())
+        timestep += 1
+        actions += int(np.logical_not(done).sum())
 
         state = next_state
         done = done | terminated | truncated
 
-    return ep_return, undiscounted_ep_return, t
+    return ep_return, undiscounted_ep_return, actions
 
 
 if __name__ == "__main__":
