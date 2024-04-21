@@ -145,7 +145,7 @@ def main(
     test_env.close()
 
     for video in glob("videos/*.mp4"):
-        run[f"test/{video.split("/")[1]}"].upload(video, wait=True)
+        run[f"test/{video.split('/')[1]}"].upload(video, wait=True)
 
     shutil.rmtree("videos")
 
