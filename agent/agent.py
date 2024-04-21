@@ -16,17 +16,19 @@ class Agent(ABC):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
+        min_buffer_size: int = 50_000,
+        max_buffer_size: int = 1_000_000,
         batch_size: int = 32,
-        frame_stack: int = 1,
         device: torch.device = torch.device("cpu"),
     ):
         self.observation_space = observation_space
         self.action_space = action_space
         self.replay_buffer = ReplayBuffer(
-            observation_space=observation_space,
-            action_space=action_space,
+            observation_space,
+            action_space,
+            min_size=min_buffer_size,
+            max_size=max_buffer_size,
             batch_size=batch_size,
-            frame_stack=frame_stack,
             device=device,
         )
         self.device = device
@@ -94,7 +96,7 @@ class RandomAgent(Agent):
     def setup(self, config):
         pass
 
-    def act(self, state, timestep, train):
+    def act(self, state, train):
         return self.action_space.sample()
 
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
