@@ -1,6 +1,7 @@
 import os
 import shutil
 from typing import Tuple
+from glob import glob
 
 import gymnasium as gym
 import neptune
@@ -53,7 +54,7 @@ def config():
     test_episodes = 100
 
     # How many times to intermittently test the model between training steps
-    train_test_interval = 5000
+    train_test_interval = 50_000
 
     # Discount factor (https://www.nature.com/articles/nature14236)
     gamma = 0.99
@@ -87,6 +88,10 @@ def main(
                 lambda env: FrameStack(env, 4),
             ],
         )
+        test_env = gym.make(env_name, render_mode="rgb_array", **env_config)
+        test_env = AtariPreprocessing(test_env, frame_skip=1, screen_size=84)
+        test_env = FrameStack(test_env, 4)
+
         agent = AGENTS[agent_id](
             envs.single_observation_space,
             envs.single_action_space,
@@ -102,6 +107,10 @@ def main(
             num_envs=num_envs,
             wrappers=[FlattenObservation, lambda env: FrameStack(env, 1)]
         )
+        test_env = gym.make(env_name, render_mode="rgb_array", **env_config)
+        test_env = FlattenObservation(test_env)
+        test_env = FrameStack(test_env, 1)
+
         agent = AGENTS[agent_id](
             envs.single_observation_space,
             envs.single_action_space,
@@ -112,55 +121,32 @@ def main(
         )
 
     config = { "gamma": gamma, "train_steps": train_steps }
-    if hasattr(envs.single_observation_space, "n"):
-        config["n_states"] = envs.single_observation_space.n
+    env_tmp = gym.make(env_name, **env_config)
+    if hasattr(env_tmp.observation_space, "n"):
+        config["n_states"] = env_tmp.observation_space.n
 
-    if hasattr(envs.single_action_space, "n"):
-        config["n_actions"] = envs.single_action_space.n
+    if hasattr(env_tmp.action_space, "n"):
+        config["n_actions"] = env_tmp.action_space.n
 
     agent.setup(config)
     envs.metadata["render_fps"] = 30
 
-    train_agent(envs, agent, gamma, train_steps, train_test_interval, run)
+    train_agent(envs, test_env, agent, gamma, train_steps, train_test_interval, max(batch_size // 8, 1), run)
+    envs.close()
 
     # Add video recorder wrapper only on the first test episode
-    envs.reset()
-
-    if "ALE" in env_name:
-        envs = gym.make_vec(
-            env_name,
-            **env_config,
-            render_mode="rgb_array", 
-            num_envs=num_envs, 
-            wrappers=[
-                # The ALE environments already have frame skipping
-                lambda env: AtariPreprocessing(env, frame_skip=1, screen_size=84),
-                lambda env: FrameStack(env, 4),
-                lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0),
-            ],
-        )
-    else:
-        envs = gym.make_vec(
-            env_name,
-            **env_config,
-            render_mode="rgb_array",
-            num_envs=num_envs,
-            wrappers=[
-                FlattenObservation,
-                lambda env: FrameStack(env, 1),
-                lambda env: RecordVideo(env, "videos", name_prefix="test", disable_logger=True, episode_trigger=lambda t: t == 0),
-            ],
-        )
-
-    test_ep_return, test_discounted_ep_return, test_timesteps = test_agent(envs, agent, gamma, test_episodes)
+    test_env = RecordVideo(test_env, "videos", name_prefix="test", disable_logger=True)
+    test_ep_return, test_discounted_ep_return, test_timesteps = test_agent(test_env, agent, gamma, test_episodes)
     for i in range(test_episodes):
         run["test/discounted_return"].append(test_discounted_ep_return[i])
         run["test/undiscounted_return"].append(test_ep_return[i])
         run["test/time_alive"].append(test_timesteps[i])
 
-    envs.close()
+    test_env.close()
 
-    run["test/video"].upload(f"videos/test-episode-0.mp4", wait=True)
+    for video in glob("videos/*.mp4"):
+        run[f"test/{video.split("/")[1]}"].upload(video, wait=True)
+
     shutil.rmtree("videos")
 
     # Save weights and clean up
@@ -174,10 +160,12 @@ def main(
 
 def train_agent(
     envs: gym.vector.VectorEnv,
+    test_env: gym.Env,
     agent: Agent,
     gamma: float,
     total_steps: int,
     test_interval: int,
+    update_freq: int,
     run: neptune.Run,
 ):
     timesteps_trained = 0
@@ -189,7 +177,7 @@ def train_agent(
 
     episode_histories = [[] for _ in range(envs.num_envs)]
 
-    with tqdm(total=total_steps, desc="Training") as pbar:
+    with tqdm(total=total_steps, desc="Training", miniters=total_steps // 10_000) as pbar:
         while timesteps_trained < total_steps:
             # Sample action and step in the environment
             action = agent.act(state, train=True)
@@ -209,12 +197,12 @@ def train_agent(
                 episode_histories[i].append((state[i], action[i], reward[i], terminated[i]))
 
                 # Update policy
-                if agent.replay_buffer.is_ready() and timesteps_trained % 4 == 0:
+                if agent.replay_buffer.is_ready() and timesteps_trained % update_freq == 0:
                     agent.update_policy()
 
                 # Intermittent testing
                 if timesteps_trained % test_interval == 0:
-                    test_ep_return, test_discounted_ep_return, test_timesteps = test_agent(envs, agent, gamma, 1)
+                    test_ep_return, test_discounted_ep_return, test_timesteps = test_agent(test_env, agent, gamma, 1)
                     run["train/test_undiscounted_return"].append(step=timesteps_trained, value=test_ep_return[0])
                     run["train/test_discounted_return"].append(step=timesteps_trained, value=test_discounted_ep_return[0])
                     run["train/test_steps_alive"].append(step=timesteps_trained, value=test_timesteps[0])
@@ -243,34 +231,32 @@ def train_agent(
 
 
 def test_agent(
-    envs: gym.vector.VectorEnv,
+    env: gym.Env,
     agent: Agent,
     gamma: float,
     episodes: int,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Takes a vectorized environment, but only tests on the first environment for `episodes`
-    episodes."""
-
     ep_return = np.zeros(episodes)
     discounted_ep_return = np.zeros(episodes)
     timesteps = np.zeros(episodes)
 
     for i in range(episodes):
         done = False
-        state, _ = envs.reset()
+        state, _ = env.reset()
 
         while not done:
-            # Sample action and step in the environment
-            action = agent.act(state, train=False)
-            next_state, reward, terminated, truncated, _ = envs.step(action)
+            # Make sure the state has the same form as in the vectorized environment
+            s = np.expand_dims(np.array(state), 0)
+            action = agent.act(s, train=False)[0]
+            next_state, reward, terminated, truncated, _ = env.step(action)
 
             # Update statistics
-            ep_return[i] += reward[0]
-            discounted_ep_return[i] += (gamma ** timesteps[i]) * reward[0]
+            ep_return[i] += reward
+            discounted_ep_return[i] += (gamma ** timesteps[i]) * reward
             timesteps[i] += 1
 
             # Check if done and update state
-            done = terminated[0] or truncated[0]
+            done = terminated or truncated
             state = next_state
 
     return ep_return, discounted_ep_return, timesteps
