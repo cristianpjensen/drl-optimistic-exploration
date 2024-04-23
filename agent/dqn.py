@@ -1,3 +1,11 @@
+"""
+Dimension suffix keys:
+
+B: batch size
+A: number of available actions
+"""
+
+
 import os
 
 import numpy as np
@@ -17,7 +25,6 @@ class AtariDQNAgent(Agent):
         self.q_target = AtariValueNetwork(n_actions=config["n_actions"]).to(self.device).requires_grad_(False)
         self.q_target.load_state_dict(self.q_network.state_dict())
 
-        # Params from https://www.nature.com/articles/nature14236
         self.optim = Adam(self.q_network.parameters(), lr=0.00025)
         self.scheduler = LinearScheduler([(0, 1), (config["train_steps"] // 10, 0.05)])
         self.gamma = config["gamma"]
@@ -33,7 +40,7 @@ class AtariDQNAgent(Agent):
     def act(self, state, train):
         with torch.no_grad():
             state = torch.tensor(state, device=self.device)
-            q_values = self.q_network(state)
+            q_values_BA = self.q_network(state)
 
         action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
         for i in range(state.shape[0]):
@@ -43,7 +50,7 @@ class AtariDQNAgent(Agent):
             if train and np.random.random() < self.scheduler.value(self.num_actions):
                 action[i] = self.action_space.sample()
             else:
-                action[i] = torch.argmax(q_values[i]).cpu().numpy()
+                action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
 
             # Update target network every 10_000 actions
             if self.num_actions % self.target_update_freq == 0:
@@ -54,15 +61,14 @@ class AtariDQNAgent(Agent):
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         # Compute target value
         with torch.no_grad():
-            q_next_values = self.q_target(s_next_batch)
-            q_next_values, _ = q_next_values.max(dim=1)
-            target_q_values = r_batch + (1 - terminal_batch.float()) * self.gamma * q_next_values
+            q_next_values_BA = self.q_target(s_next_batch)
+            q_next_values_B, _ = q_next_values_BA.max(dim=1)
+            target_q_values_B = r_batch + (1 - terminal_batch.float()) * self.gamma * q_next_values_B
 
-        current_q_values = self.q_network(s_batch)
-        current_q_values = torch.gather(current_q_values, dim=1, index=a_batch.unsqueeze(-1))
-        current_q_values = current_q_values.squeeze(-1)
+        q_values_BA = self.q_network(s_batch)
+        q_values_B = q_values_BA[torch.arange(q_values_BA.shape[0]), a_batch]
 
-        loss = F.smooth_l1_loss(current_q_values, target_q_values)
+        loss = F.smooth_l1_loss(q_values_B, target_q_values_B)
 
         # Update weights
         self.optim.zero_grad()

@@ -1,3 +1,12 @@
+"""
+Dimension suffix keys:
+
+B: batch size
+A: number of available actions
+Q: number of quantiles
+"""
+
+
 import os
 
 import numpy as np
@@ -24,10 +33,9 @@ class AtariQRAgent(Agent):
         ).to(self.device).requires_grad_(False)
         self.qr_target.load_state_dict(self.qr_network.state_dict())
 
-        self.tau = (torch.arange(self.n_quantiles, device=self.device) * 2 - 1) / (2 * self.n_quantiles)
+        self.tau_Q = (torch.arange(self.n_quantiles, device=self.device) * 2 - 1) / (2 * self.n_quantiles)
         self.kappa = 1
 
-        # Params from https://www.nature.com/articles/nature14236
         self.optim = Adam(self.qr_network.parameters(), lr=0.00025)
         
         # Linearly interpolate between 0 and 10% of number of training steps
@@ -45,8 +53,8 @@ class AtariQRAgent(Agent):
     def act(self, state, train):
         with torch.no_grad():
             state = torch.tensor(state, device=self.device)
-            qr_values = self.qr_network(state) # (batch_size, n_actions, n_quantiles)
-            q_values = qr_values.mean(dim=-1) # (batch_size, n_actions)
+            qr_values_BAQ = self.qr_network(state)
+            q_values_BA = qr_values_BAQ.mean(dim=-1)
 
         action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
         for i in range(state.shape[0]):
@@ -56,7 +64,7 @@ class AtariQRAgent(Agent):
             if train and np.random.random() < self.scheduler.value(self.num_actions):
                 action[i] = self.action_space.sample()
             else:
-                action[i] = torch.argmax(q_values[i]).cpu().numpy()
+                action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
 
             # Update target network every 10_000 actions
             if self.num_actions % self.target_update_freq == 0:
@@ -67,19 +75,15 @@ class AtariQRAgent(Agent):
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         # Compute target value
         with torch.no_grad():
-            qr_next_values = self.qr_target(s_next_batch) # (batch_size, n_actions, n_quantiles)
-            q_values = qr_next_values.mean(dim=-1) # (batch_size, n_actions)
-            q_target, _ = q_values.max(dim=-1) # (batch_size,)
-            target_q_values = r_batch + (1 - terminal_batch.float()) * self.gamma * q_target
+            qr_next_values_BAQ = self.qr_target(s_next_batch)
+            q_values_BA = qr_next_values_BAQ.mean(dim=-1)
+            q_target_B, _ = q_values_BA.max(dim=-1)
+            target_q_values_B = r_batch + (1 - terminal_batch.float()) * self.gamma * q_target_B
 
-        qr_values = self.qr_network(s_batch) # (batch_size, n_actions, n_quantiles)
-        qr_values = qr_values[torch.arange(qr_values.shape[0]), a_batch] # (batch_size, n_quantiles)
+        qr_values_BAQ = self.qr_network(s_batch)
+        qr_values_BQ = qr_values_BAQ[torch.arange(qr_values_BAQ.shape[0]), a_batch]
 
-        # print(qr_values.shape)
-        # print(target_q_values.shape)
-        # input("x")
-
-        loss = self._loss(qr_values, target_q_values.reshape(-1, 1))
+        loss = self._loss(qr_values_BQ, target_q_values_B.unsqueeze(-1))
         loss = loss.mean()
 
         # Update weights
@@ -93,9 +97,10 @@ class AtariQRAgent(Agent):
         self.current_loss = loss
         self.logged_loss = False
 
-    def _loss(self, input: torch.Tensor, target: torch.Tensor):
-        u = target - input
-        return torch.abs(self.tau - (u < 0).float()) * F.huber_loss(input, target, delta=self.kappa)
+    def _loss(self, input_BQ: torch.Tensor, target_B: torch.Tensor):
+        target_BQ = target_B.unsqueeze(-1).expand_as(input_BQ)
+        u = target_BQ - input_BQ
+        return torch.abs(self.tau_Q - (u < 0).float()) * F.huber_loss(input_BQ, target_B, delta=self.kappa)
 
     def log(self, run):
         if not self.logged_loss:
@@ -141,6 +146,5 @@ class AtariQRNetwork(nn.Module):
 
     def forward(self, state):
         state = state.float() / 255.0
-
         output = self.net(state)
         return output.view(output.shape[0], self.n_actions, self.n_quantiles)
