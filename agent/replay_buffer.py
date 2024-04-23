@@ -53,6 +53,7 @@ class ReplayBuffer:
 
         # Keep track of how many frames have been added
         self.entries = 0
+        self.added = 0
 
     def push_episode(self, episode: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]):
         """Pushes an entire episode to the replay buffer."""
@@ -62,6 +63,8 @@ class ReplayBuffer:
     def push(self, state, action, reward, terminal):
         """Pushes to the replay buffer, in a manner such that we do not store duplicate frames and
         have no frame stacks that contain frames from more than one episode."""
+
+        self.added += 1
 
         index = self.entries % self.max_size
 
@@ -125,7 +128,7 @@ class ReplayBuffer:
         return self.frames[stacked_indices], self.actions[indices], self.rewards[indices], self.frames[stacked_indices+1], self.terminals[indices]
 
     def __len__(self):
-        return min(self.entries, self.max_size)
+        return min(self.added, self.max_size)
 
     def is_ready(self):
         return len(self) >= self.min_size
