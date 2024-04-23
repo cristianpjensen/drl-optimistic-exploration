@@ -18,8 +18,8 @@ class AtariDQNAgent(Agent):
         self.q_target.load_state_dict(self.q_network.state_dict())
 
         # Params from https://www.nature.com/articles/nature14236
-        self.optim = Adam(self.q_network.parameters(), lr=1e-4)
-        self.scheduler = LinearScheduler([(0, 1), (config["train_steps"], 0.05)])
+        self.optim = Adam(self.q_network.parameters(), lr=0.00025)
+        self.scheduler = LinearScheduler([(0, 1), (config["train_steps"] // 10, 0.05)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
