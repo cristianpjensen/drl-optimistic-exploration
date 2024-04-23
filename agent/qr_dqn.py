@@ -83,7 +83,7 @@ class AtariQRAgent(Agent):
         qr_values_BAQ = self.qr_network(s_batch)
         qr_values_BQ = qr_values_BAQ[torch.arange(qr_values_BAQ.shape[0]), a_batch]
 
-        loss = self._loss(qr_values_BQ, target_q_values_B.unsqueeze(-1))
+        loss = self._loss(qr_values_BQ, target_q_values_B)
         loss = loss.mean()
 
         # Update weights
@@ -100,7 +100,7 @@ class AtariQRAgent(Agent):
     def _loss(self, input_BQ: torch.Tensor, target_B: torch.Tensor):
         target_BQ = target_B.unsqueeze(-1).expand_as(input_BQ)
         u = target_BQ - input_BQ
-        return torch.abs(self.tau_Q - (u < 0).float()) * F.huber_loss(input_BQ, target_B, delta=self.kappa)
+        return torch.abs(self.tau_Q - (u < 0).float()) * F.huber_loss(input_BQ, target_BQ, delta=self.kappa)
 
     def log(self, run):
         if not self.logged_loss:
