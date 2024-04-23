@@ -2,6 +2,8 @@ import os
 import shutil
 from typing import Tuple
 from glob import glob
+import string
+import random
 
 import gymnasium as gym
 import neptune
@@ -48,6 +50,7 @@ def config():
     max_buffer_size = 1_000_000
 
     # How many steps to train the agent for
+    # 50M steps is 200M frames when accounting for frame skipping
     train_steps = 50_000_000
     
     # How many episodes to test on after training
@@ -74,7 +77,12 @@ def main(
     train_test_interval: int,
     gamma: float,
 ):
+    NAME = get_random_id()
+    os.mkdir(NAME)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    print("Run ID:", NAME)
+    print("DO NOT DELETE THIS DIRECTORY!")
     print("Device:", device)
 
     if "ALE" in env_name:
@@ -120,6 +128,8 @@ def main(
             device=device,
         )
 
+    test_env = RecordVideo(test_env, f"{NAME}/videos", disable_logger=True, episode_trigger=lambda _: True)
+
     config = { "gamma": gamma, "train_steps": train_steps }
     env_tmp = gym.make(env_name, **env_config)
     if hasattr(env_tmp.observation_space, "n"):
@@ -131,11 +141,9 @@ def main(
     agent.setup(config)
     envs.metadata["render_fps"] = 30
 
-    train_agent(envs, test_env, agent, gamma, train_steps, train_test_interval, max(batch_size // 8, 1), run)
+    train_agent(envs, test_env, agent, gamma, train_steps, train_test_interval, max(batch_size // 8, 1), run, name=NAME)
     envs.close()
 
-    # Add video recorder wrapper only on the first test episode
-    test_env = RecordVideo(test_env, "videos", name_prefix="test", disable_logger=True)
     test_ep_return, test_discounted_ep_return, test_timesteps = test_agent(test_env, agent, gamma, test_episodes)
     for i in range(test_episodes):
         run["test/discounted_return"].append(test_discounted_ep_return[i])
@@ -144,18 +152,17 @@ def main(
 
     test_env.close()
 
-    for video in glob("videos/*.mp4"):
-        run[f"test/{video.split('/')[1]}"].upload(video, wait=True)
+    for i, video in enumerate(sorted(glob(f"{NAME}/videos/*.mp4"))):
+        run[f"test/episode-{i}.mp4"].upload(video, wait=True)
 
-    shutil.rmtree("videos")
-
-    # Save weights and clean up
-    saved = agent.save("weights")
+    # Save weights
+    saved = agent.save(f"{NAME}/weights")
     if saved:
-        shutil.make_archive("weights", "zip", "weights")
-        run["weights"].upload("weights.zip", wait=True)
-        shutil.rmtree("weights")
-        os.remove("weights.zip")
+        shutil.make_archive(f"{NAME}/weights", "zip", f"{NAME}/weights")
+        run["weights"].upload(f"{NAME}/weights.zip", wait=True)
+
+    # Clean up
+    shutil.rmtree(NAME)
 
 
 def train_agent(
@@ -167,6 +174,7 @@ def train_agent(
     test_interval: int,
     update_freq: int,
     run: neptune.Run,
+    name: str = ""
 ):
     timesteps_trained = 0
     state, _ = envs.reset()
@@ -202,10 +210,16 @@ def train_agent(
 
                 # Intermittent testing
                 if timesteps_trained % test_interval == 0:
-                    test_ep_return, test_discounted_ep_return, test_timesteps = test_agent(test_env, agent, gamma, 1)
-                    run["train/test_undiscounted_return"].append(step=timesteps_trained, value=test_ep_return[0])
-                    run["train/test_discounted_return"].append(step=timesteps_trained, value=test_discounted_ep_return[0])
-                    run["train/test_steps_alive"].append(step=timesteps_trained, value=test_timesteps[0])
+                    # Do 2 test episodes, since 1 is not enough to get a good estimate (Machado et al. 2018, 4.1.2)
+                    test_ep_return, test_discounted_ep_return, test_timesteps = test_agent(test_env, agent, gamma, 2)
+                    run["train/intermittent-testing/test_undiscounted_return"].append(step=timesteps_trained, value=test_ep_return.mean())
+                    run["train/intermittent-testing/test_discounted_return"].append(step=timesteps_trained, value=test_discounted_ep_return.mean())
+                    run["train/intermittent-testing/steps_alive"].append(step=timesteps_trained, value=test_timesteps.mean())
+
+                    # Upload video to Neptune and delete it
+                    for video in glob(f"{name}/videos/*.mp4"):
+                        run[f"train/intermittent-testing/videos/training-steps-{timesteps_trained}.mp4"].upload(video, wait=True)
+                        os.remove(video)
 
                 # Report statistics of finished episodes and add to replay buffer
                 if done[i]:
@@ -260,6 +274,10 @@ def test_agent(
             state = next_state
 
     return ep_return, discounted_ep_return, timesteps
+
+
+def get_random_id():
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
 
 
 if __name__ == "__main__":
