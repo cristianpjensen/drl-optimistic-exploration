@@ -68,7 +68,7 @@ class AtariIQNAgent(Agent):
     def act(self, state, train):
         with torch.no_grad():
             state_BFHW = torch.tensor(state, device=self.device)
-            tau_BS = torch.rand(state_BFHW.shape[0], self.n_inf_samples)
+            tau_BS = torch.rand((state_BFHW.shape[0], self.n_inf_samples), device=self.device)
             iq_values_BSA = self.iqn_network(state_BFHW, tau_BS)
             q_values_BA = iq_values_BSA.mean(dim=1)
            
@@ -93,12 +93,12 @@ class AtariIQNAgent(Agent):
 
         # Compute target values
         with torch.no_grad():
-            tau_BT = torch.rand(batch_size, self.n_target_samples)
+            tau_BT = torch.rand((batch_size, self.n_target_samples), device=self.device)
             iq_next_BTA = self.iqn_target(state_prime_BFHW, tau_BT)
             iq_next_BT, _ = iq_next_BTA.max(dim=-1)
             target_BT = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * iq_next_BT
 
-        tau_BN = torch.rand(batch_size, self.n_samples)
+        tau_BN = torch.rand((batch_size, self.n_samples), device=self.device)
         iq_value_BNA = self.iqn_network(state_BFHW, tau_BN)
         iq_value_BN = iq_value_BNA[torch.arange(batch_size), :, action_B]
 
@@ -151,7 +151,10 @@ class AtariIQNNetwork(nn.Module):
     def __init__(self, n_actions: int, emb_dim: int):
         super(AtariIQNNetwork, self).__init__()
 
-        self.emb_indices_M = torch.arange(emb_dim).float()
+        self.emb_indices_M = nn.Parameter(
+            torch.arange(emb_dim).float(),
+            requires_grad=False,
+        )
         self.n_actions = n_actions
 
         # Input: 4 x 84 x 84
@@ -178,7 +181,6 @@ class AtariIQNNetwork(nn.Module):
         )
 
     def forward(self, state_BFHW, tau_BN):
-
         state_BFHW = state_BFHW.float() / 255.0
         conv_out_BD = self.conv(state_BFHW)
 
