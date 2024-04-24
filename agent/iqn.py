@@ -35,11 +35,10 @@ from agent.utils.scheduler import LinearScheduler
 
 class AtariIQNAgent(Agent):
     def setup(self, config):
-        # TODO: Temp. hyperparameters
         self.emb_dim = 64
         self.n_inf_samples = 32
         self.n_samples = 8
-        self.n_target_samples = 4
+        self.n_target_samples = 8
         self.kappa = 1
 
         self.iqn_network = AtariIQNNetwork(
