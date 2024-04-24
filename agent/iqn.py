@@ -27,7 +27,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import Adam
+from torch.optim import RMSprop
 
 from agent.agent import Agent
 from agent.utils.scheduler import LinearScheduler
@@ -51,10 +51,8 @@ class AtariIQNAgent(Agent):
         ).to(self.device).requires_grad_(False)
         self.iqn_target.load_state_dict(self.iqn_network.state_dict())
 
-        self.optim = Adam(self.iqn_network.parameters(), lr=0.00025)
-        
-        # Linearly interpolate between 0 and 10% of number of training steps
-        self.scheduler = LinearScheduler([(0, 1), (config["train_steps"] // 10, 0.05)])
+        self.optim = RMSprop(self.q_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
+        self.scheduler = LinearScheduler([(0, 1), (1000000, 0.01)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0

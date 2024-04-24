@@ -46,7 +46,7 @@ def config():
 
     # Replay buffer sizes
     batch_size = 32
-    min_buffer_size = 100
+    min_buffer_size = 50_000
     max_buffer_size = 1_000_000
 
     # How many steps to train the agent for

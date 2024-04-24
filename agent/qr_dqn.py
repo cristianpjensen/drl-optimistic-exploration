@@ -1,11 +1,10 @@
 """
-Dimension suffix keys:
+Dimension keys:
 
 B: batch size
 A: number of available actions
 Q: number of quantiles
 """
-
 
 import os
 
@@ -13,7 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import Adam
+from torch.optim import RMSprop
 
 from agent.agent import Agent
 from agent.utils.scheduler import LinearScheduler
@@ -36,10 +35,8 @@ class AtariQRAgent(Agent):
         self.tau_Q = (torch.arange(self.n_quantiles, device=self.device) * 2 - 1) / (2 * self.n_quantiles)
         self.kappa = 1
 
-        self.optim = Adam(self.qr_network.parameters(), lr=0.00025)
-        
-        # Linearly interpolate between 0 and 10% of number of training steps
-        self.scheduler = LinearScheduler([(0, 1), (config["train_steps"] // 10, 0.05)])
+        self.optim = RMSprop(self.q_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
+        self.scheduler = LinearScheduler([(0, 1), (1000000, 0.01)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
