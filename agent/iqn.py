@@ -21,6 +21,7 @@ n = 2 yield 40ish iter per second, and with n = 1 you are expected to recover DQ
 """
 
 import os
+import warnings
 
 import numpy as np
 import torch
@@ -103,7 +104,10 @@ class AtariIQNAgent(Agent):
         iq_value_BN = iq_value_BNA[torch.arange(batch_size), :, action_B]
 
         # Compute Huber loss and TD error for every [tau, tau'] pair
-        huber_BNT = F.huber_loss(iq_value_BN.unsqueeze(2), target_BT.unsqueeze(1), reduction="none", delta=self.kappa)
+        with warnings.catch_warnings(action="ignore"):
+            # We want broadcasting here, so that we compute over all pairs
+            huber_BNT = F.huber_loss(iq_value_BN.unsqueeze(2), target_BT.unsqueeze(1), reduction="none", delta=self.kappa)
+
         td_error_BNT = target_BT.unsqueeze(1) - iq_value_BN.unsqueeze(2)
 
         # Quantile regression loss for every [tau, tau'] pair
