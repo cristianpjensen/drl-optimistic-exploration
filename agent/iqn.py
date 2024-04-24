@@ -49,8 +49,6 @@ class AtariIQNAgent(Agent):
         ).to(self.device).requires_grad_(False)
         self.iqn_target.load_state_dict(self.iqn_network.state_dict())
 
-        
-
         self.optim = Adam(self.iqn_network.parameters(), lr=0.00025)
         
         # Linearly interpolate between 0 and 10% of number of training steps
@@ -66,8 +64,6 @@ class AtariIQNAgent(Agent):
         self.logged_loss = True
 
     def act(self, state, train):
-        #epsilon-greedy strategy
-        
         with torch.no_grad():
             state = torch.tensor(state, device=self.device)
            
@@ -85,7 +81,6 @@ class AtariIQNAgent(Agent):
                 # with the highest
                 #average. Basic approach without optimism.
                 #maybe m is the bottleneck on why it's so slow
-                
                  
                 taus = torch.rand(self.m)
                 q_values = torch.zeros(self.m, self.action_space.n)
@@ -102,8 +97,6 @@ class AtariIQNAgent(Agent):
                 self.iqn_target.load_state_dict(self.iqn_network.state_dict())
 
         return action
-        
-        
 
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         
@@ -121,16 +114,11 @@ class AtariIQNAgent(Agent):
         q_values_mat = torch.zeros(n, batch_size)
 
         for i in range(n):
-            
             q_values = self.iqn_network(s_batch, taus[i])
-   
             q_value = q_values[torch.arange(q_values.shape[0]).long(), a_batch.long()]
-   
             q_values_mat[i] = q_value
 
         q_values_mat_transposed = q_values_mat.transpose(0,1)
-
-        
         q_next_values_mat = torch.zeros(n_prime, batch_size)
 
         for i in range(n_prime):
@@ -158,7 +146,6 @@ class AtariIQNAgent(Agent):
             loss = loss / n_prime
 
         loss = loss / batch_size
-        
     
         # Update weights
         self.optim.zero_grad()
@@ -170,8 +157,6 @@ class AtariIQNAgent(Agent):
         self.num_updates += 1
         self.current_loss = loss
         self.logged_loss = False
-
-    
 
     def log(self, run):
         if not self.logged_loss:
@@ -192,23 +177,19 @@ class AtariIQNAgent(Agent):
 
 
 class AtariIQNNetwork(nn.Module):
+    """Implementation of IQN network, as in Bellemare book Chapter 10, and
+    https://arxiv.org/pdf/1806.06923.pdf."""
     
-    
-    
-    
-    #used the implementation in Bellamare book chapter 10
-    # and https://arxiv.org/pdf/1806.06923.pdf
-    
-
-    def __init__(self, n_actions: int, M : int):
+    def __init__(self, n_actions: int, emb_dim: int):
         super(AtariIQNNetwork, self).__init__()
 
-        self.M = M
+        self.emb_indices_M = torch.arange(emb_dim).float()
         self.n_actions = n_actions
 
         # Input: 4 x 84 x 84
 
-        self.conv_net = nn.Sequential(
+        # DQN is `conv` followed by `final_fc`. IQN adds an embedding layer.
+        self.conv = nn.Sequential(
             nn.Conv2d(4, 32, kernel_size=8, stride=4),  # Output: 32 x 20 x 20
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2), # Output: 64 x 9 x 9
@@ -218,7 +199,7 @@ class AtariIQNNetwork(nn.Module):
         )
 
         self.embedding_fc = nn.Sequential(
-            nn.Linear(self.M, 7 * 7 * 64 ),
+            nn.Linear(emb_dim, 7 * 7 * 64),
             nn.ReLU()
         )
 
@@ -228,109 +209,31 @@ class AtariIQNNetwork(nn.Module):
             nn.Linear(512, n_actions)
         )
 
-        
+    def forward(self, state_BFHW, tau_BN):
+        """
+        Dimension keys:
 
-    def forward(self, state, tau):
-        
-        state = state.float() / 255.0
-        conv_out = self.conv_net(state)  # Should be [batch_size, 3136]
+        B: batch size
+        F: frame stack size
+        H: height
+        W: width
+        A: number of available actions
+        M: size of cosine embedding
+        N: number of distribution samples per state
+        D: intermediate dimension between `conv` and `final_fc`
 
-        if tau.ndim == 1:
-            tau = tau.unsqueeze(-1)  # Adding a new dimension for proper broadcasting
+        Output: B x N x A
 
-        indices = torch.arange(0, self.M, device=state.device).unsqueeze(0).float()
-        cos_embedding = torch.cos(torch.pi * tau * indices)  # Broadcasting occurs here
+        """
 
-        embedding_out = self.embedding_fc(cos_embedding)  # Expected: [batch_size, M]
-        embedding_out = embedding_out.view(-1, 3136)  # Reshape to match conv_out
+        state_BFHW = state_BFHW.float() / 255.0
+        conv_out_BD = self.conv(state_BFHW)
 
-        # Debug: Print shapes to ensure they match
-        print(f'conv_out shape: {conv_out.shape}')  # Should be [batch_size, 3136]
-        print(f'embedding_out shape: {embedding_out.shape}')  # Should also be [batch_size, 3136]
+        # Compute cosine embedding for each tau, resulting in N M-dimensional embeddings per state
+        cos_embedding_BNM = torch.cos(torch.pi * torch.einsum("bn,m->bnm", tau_BN, self.emb_indices_M))
+        emb_out_BND = self.embedding_fc(cos_embedding_BNM)
 
-        final_fc_input = conv_out * embedding_out
-        result = self.final_fc(final_fc_input)  # Flatten if needed
+        # Hadamard product between conv_out and emb_out for each tau
+        hadamard = torch.einsum("bd,bnd->bnd", conv_out_BD, emb_out_BND)
 
-        return result
-        
-        state = state.float() / 255.0
-        conv_out = self.conv_net(state)
-
-        # Ensure tau is correctly expanded to match dimensions needed for cosine embedding
-        if tau.ndim == 1:
-            tau = tau.unsqueeze(-1)  # Adding a new dimension for proper broadcasting
-
-        indices = torch.arange(0, self.M, device=state.device).unsqueeze(0).float()
-        cos_embedding = torch.cos(torch.pi * tau * indices)  # Broadcasting occurs here
-
-        embedding_out = self.embedding_fc(cos_embedding)
-        embedding_out = embedding_out.view(-1, 3136)  # Reshape to match conv_out
-
-        # Element-wise multiplication of conv_out and embedding_out
-        final_fc_input = conv_out * embedding_out
-
-        # Pass the combined features through the final fully connected layer
-        result = self.final_fc(final_fc_input.view(conv_out.size(0), -1))  # Flatten if needed
-        return result
-        
-        state = state.float() / 255.0
-        conv_out = self.conv_net(state)
-
-        # Ensure tau is correctly expanded to match dimensions needed for cosine embedding
-        if tau.ndim == 1:
-            tau = tau.unsqueeze(-1)  # Adding a new dimension for proper broadcasting
-
-        indices = torch.arange(0, self.M, device=state.device).unsqueeze(0).float()
-        cos_embedding = torch.cos(torch.pi * tau * indices)  # Broadcasting occurs here
-
-        embedding_out = self.embedding_fc(cos_embedding)
-
-        # Reshape conv_out as needed to multiply by embedding_out
-        conv_out = conv_out.view(conv_out.size(0), -1)  # Flatten conv output maintaining batch size
-        if embedding_out.size(-1) != conv_out.size(-1):
-            # Ensure embedding_out is expanded along the batch dimension
-            embedding_out = embedding_out.expand_as(conv_out)
-
-        # Element-wise multiplication of conv_out and embedding_out
-        final_fc_input = conv_out * embedding_out
-
-        # Pass the combined features through the final fully connected layer
-        result = self.final_fc(final_fc_input.view(conv_out.size(0), -1))  # Flatten if needed
-
-        return result
-    
-
-        
-        
-        '''
-        state = state.float() / 255.0
-        conv_out = self.conv_net(state)
-
-        # Ensure tau is correctly expanded to match dimensions needed for cosine embedding
-        
-        indices = torch.arange(0, self.M, device=state.device).float()
-        if tau.ndim != 0:
-            cos_embedding = torch.zeros(tau.size(0), self.M)
-            for i,t in enumerate(tau):
-                cos_embedding[i] = torch.cos(torch.pi * t * indices)
-        else:
-            cos_embedding = torch.cos(torch.pi * tau * indices)
-
-
-        embedding_out = self.embedding_fc(cos_embedding)
-
-        # Reshape conv_out as needed to multiply by embedding_out
-        
-
-        # Element-wise multiplication of conv_out and embedding_out
-        final_fc_input = conv_out * embedding_out
-
-        # Pass the combined features through the final fully connected layer
-        result = self.final_fc(final_fc_input.view(conv_out.size(0), -1))  # Flatten if needed
-
-        return result
-        '''
-    
-
-       
-        
+        return self.final_fc(hadamard)
