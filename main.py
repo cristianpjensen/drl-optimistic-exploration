@@ -42,7 +42,7 @@ def config():
     env_config = {}
 
     # Agent identifier
-    agent_id = "atari-iqn"
+    agent_id = "atari-dqn"
 
     # Replay buffer sizes
     batch_size = 32

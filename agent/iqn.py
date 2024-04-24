@@ -1,23 +1,24 @@
 """
-Dimension suffix keys:
+
+Dimension keys:
 
 B: batch size
+F: frame stack size
+H: height
+W: width
+N: number of distribution samples for training values
+T: number of distribution samples for target values
+S: number of distribution samples for inference
 A: number of available actions
-m: number of samples from the distributions to choose action
-M: size of cosine embedding
-n: number of percentile samples for current states
-n_prime: number of percentile samples for next states
+M: embedding dimension
+D: intermediate dimension between `conv` and `final_fc`
 
-
-!!!!!!!!!!!!!!!!!IMPORTANT!!!!!!!!!!!!!!!!!!!!!!!
-the paper says that a larger n yields better results. The complexity
-seems to grow quadratically with n. the paper also says that after n = 8
-we see diminishing returns and that 8 is enough to observe improvements
-over C51/QR. Problem: with n = 8 I have 5 iter/s. With n = 4 20 iter/s
+IMPORTANT: The paper says that a larger n yields better results. The complexity seems to grow
+quadratically with n. the paper also says that after n = 8 we see diminishing returns and that 8 is
+enough to observe improvements over C51/QR. Problem: with n = 8 I have 5 iter/s. With n = 4 20 iter/s
 n = 2 yield 40ish iter per second, and with n = 1 you are expected to recover DQN.
 
 """
-
 
 import os
 
@@ -33,19 +34,20 @@ from agent.utils.scheduler import LinearScheduler
 
 class AtariIQNAgent(Agent):
     def setup(self, config):
-        self.M = 64
-        self.m = 32
-        self.n = 2
-        self.n_prime = self.n
-        self.k = 1
+        # TODO: Temp. hyperparameters
+        self.emb_dim = 64
+        self.n_inf_samples = 32
+        self.n_samples = 8
+        self.n_target_samples = 4
+        self.kappa = 1
 
         self.iqn_network = AtariIQNNetwork(
             n_actions=config["n_actions"],
-            M=self.M,
+            emb_dim=self.emb_dim,
         ).to(self.device)
         self.iqn_target = AtariIQNNetwork(
             n_actions=config["n_actions"],
-            M=self.M,
+            emb_dim=self.emb_dim,
         ).to(self.device).requires_grad_(False)
         self.iqn_target.load_state_dict(self.iqn_network.state_dict())
 
@@ -65,7 +67,10 @@ class AtariIQNAgent(Agent):
 
     def act(self, state, train):
         with torch.no_grad():
-            state = torch.tensor(state, device=self.device)
+            state_BFHW = torch.tensor(state, device=self.device)
+            tau_BS = torch.rand(state_BFHW.shape[0], self.n_inf_samples)
+            iq_values_BSA = self.iqn_network(state_BFHW, tau_BS)
+            q_values_BA = iq_values_BSA.mean(dim=1)
            
         action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
         for i in range(state.shape[0]):
@@ -75,22 +80,7 @@ class AtariIQNAgent(Agent):
             if train and np.random.random() < self.scheduler.value(self.num_actions):
                 action[i] = self.action_space.sample()
             else:
-                #what happens here is that for each of the 4 states, we compute a sample average 
-                #(m is the number of samples used, value taken from iqn paper)
-                #for the value of each action for that state, and than we take the action
-                # with the highest
-                #average. Basic approach without optimism.
-                #maybe m is the bottleneck on why it's so slow
-                 
-                taus = torch.rand(self.m)
-                q_values = torch.zeros(self.m, self.action_space.n)
-                
-                for j, tau in enumerate(taus):
-                    q_values[j] = self.iqn_network(state[i], tau)
-                    
-                avg_q_values = torch.mean(q_values, dim = 0)
-                action[i] = torch.argmax(avg_q_values).cpu().numpy()
-                
+                action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
 
             # Update target network every 10_000 actions
             if self.num_actions % self.target_update_freq == 0:
@@ -98,54 +88,28 @@ class AtariIQNAgent(Agent):
 
         return action
 
-    def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
-        
-        #the IQN paper says that the higher n, n_prime the better
-        #but also that after n = 8 there are diminishing returns
-        
-        n = self.n
-        n_prime = self.n_prime
+    def train(self, state_BFHW, action_B, reward_B, state_prime_BFHW, terminal_B):
+        batch_size = state_BFHW.shape[0]
 
-        batch_size = s_batch.size(0)
+        # Compute target values
+        with torch.no_grad():
+            tau_BT = torch.rand(batch_size, self.n_target_samples)
+            iq_next_BTA = self.iqn_target(state_prime_BFHW, tau_BT)
+            iq_next_BT, _ = iq_next_BTA.max(dim=-1)
+            target_BT = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * iq_next_BT
 
-        taus = torch.rand(n, batch_size)
-        taus_prime = torch.rand(n_prime, batch_size)
+        tau_BN = torch.rand(batch_size, self.n_samples)
+        iq_value_BNA = self.iqn_network(state_BFHW, tau_BN)
+        iq_value_BN = iq_value_BNA[torch.arange(batch_size), :, action_B]
 
-        q_values_mat = torch.zeros(n, batch_size)
+        # Compute Huber loss and TD error for every [tau, tau'] pair
+        huber_BNT = F.huber_loss(iq_value_BN.unsqueeze(2), target_BT.unsqueeze(1), reduction="none", delta=self.kappa)
+        td_error_BNT = target_BT.unsqueeze(1) - iq_value_BN.unsqueeze(2)
 
-        for i in range(n):
-            q_values = self.iqn_network(s_batch, taus[i])
-            q_value = q_values[torch.arange(q_values.shape[0]).long(), a_batch.long()]
-            q_values_mat[i] = q_value
-
-        q_values_mat_transposed = q_values_mat.transpose(0,1)
-        q_next_values_mat = torch.zeros(n_prime, batch_size)
-
-        for i in range(n_prime):
-            q_next_values = self.iqn_target(s_next_batch, taus_prime[i])
-            q_next_values_mat[i] = q_next_values.max(1).values
-
-        q_next_values_mat_transposed = q_values_mat.transpose(0,1)
-
-
-        huberloss = torch.nn.HuberLoss(delta = self.k)
-        indicator = lambda u : ( u < 0).float()
-
-        loss = 0
-
-        for batch_index in range(batch_size):
-
-            for tau_index, q_value in enumerate(q_values_mat_transposed[batch_index]):
-                for q_next_value in q_next_values_mat_transposed[batch_index]:
-                    
-                    target = r_batch[batch_index] + (self.gamma * q_next_value) * (1 - terminal_batch[batch_index].float())
-                    
-                    error = target - q_value
-                    
-                    loss += torch.abs(indicator(error) - taus[tau_index, batch_index] ) * huberloss( q_value, target)
-            loss = loss / n_prime
-
-        loss = loss / batch_size
+        # Quantile regression loss for every [tau, tau'] pair
+        loss_BNT = torch.abs(tau_BN.unsqueeze(2) - (td_error_BNT < 0).float()) * huber_BNT / self.kappa
+        loss_B = loss_BNT.mean(dim=2).sum(dim=1)
+        loss = loss_B.mean()
     
         # Update weights
         self.optim.zero_grad()
@@ -178,7 +142,11 @@ class AtariIQNAgent(Agent):
 
 class AtariIQNNetwork(nn.Module):
     """Implementation of IQN network, as in Bellemare book Chapter 10, and
-    https://arxiv.org/pdf/1806.06923.pdf."""
+    https://arxiv.org/pdf/1806.06923.pdf.
+
+    Output: B x N x A
+
+    """
     
     def __init__(self, n_actions: int, emb_dim: int):
         super(AtariIQNNetwork, self).__init__()
@@ -210,21 +178,6 @@ class AtariIQNNetwork(nn.Module):
         )
 
     def forward(self, state_BFHW, tau_BN):
-        """
-        Dimension keys:
-
-        B: batch size
-        F: frame stack size
-        H: height
-        W: width
-        A: number of available actions
-        M: size of cosine embedding
-        N: number of distribution samples per state
-        D: intermediate dimension between `conv` and `final_fc`
-
-        Output: B x N x A
-
-        """
 
         state_BFHW = state_BFHW.float() / 255.0
         conv_out_BD = self.conv(state_BFHW)
