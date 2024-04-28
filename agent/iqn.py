@@ -1,5 +1,4 @@
 """
-
 Dimension keys:
 
 B: batch size
@@ -12,24 +11,17 @@ S: number of distribution samples for inference
 A: number of available actions
 M: embedding dimension
 D: intermediate dimension between `conv` and `final_fc`
-
-IMPORTANT: The paper says that a larger n yields better results. The complexity seems to grow
-quadratically with n. the paper also says that after n = 8 we see diminishing returns and that 8 is
-enough to observe improvements over C51/QR. Problem: with n = 8 I have 5 iter/s. With n = 4 20 iter/s
-n = 2 yield 40ish iter per second, and with n = 1 you are expected to recover DQN.
-
 """
 
 import os
-import warnings
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.optim import RMSprop
 
 from agent.agent import Agent
+from agent.utils.huber_loss import huber_loss
 from agent.utils.scheduler import LinearScheduler
 
 
@@ -100,12 +92,8 @@ class AtariIQNAgent(Agent):
         iq_value_BNA = self.iqn_network(state_BFHW, tau_BN)
         iq_value_BN = iq_value_BNA[torch.arange(batch_size), :, action_B]
 
-        # Compute Huber loss and TD error for every [tau, tau'] pair
-        with warnings.catch_warnings(action="ignore"):
-            # We want broadcasting here, so that we compute over all pairs
-            huber_BNT = F.huber_loss(iq_value_BN.unsqueeze(2), target_BT.unsqueeze(1), reduction="none", delta=self.kappa)
-
         td_error_BNT = target_BT.unsqueeze(1) - iq_value_BN.unsqueeze(2)
+        huber_BNT = huber_loss(td_error_BNT, self.kappa)
 
         # Quantile regression loss for every [tau, tau'] pair
         loss_BNT = torch.abs(tau_BN.unsqueeze(2) - (td_error_BNT < 0).float()) * huber_BNT / self.kappa

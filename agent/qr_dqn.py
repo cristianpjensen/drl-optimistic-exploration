@@ -11,10 +11,10 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.optim import RMSprop
 
 from agent.agent import Agent
+from agent.utils.huber_loss import huber_loss
 from agent.utils.scheduler import LinearScheduler
 
 
@@ -69,19 +69,30 @@ class AtariQRAgent(Agent):
 
         return action
 
-    def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
-        # Compute target value
+    def train(self, state_BFHW, action_B, reward_B, state_prime_BFHW, terminal_B):
+        batch_size = state_BFHW.shape[0]
+
+        # Comute distributional Bellman target
         with torch.no_grad():
-            qr_next_values_BAQ = self.qr_target(s_next_batch)
-            q_values_BA = qr_next_values_BAQ.mean(dim=-1)
-            q_target_B, _ = q_values_BA.max(dim=-1)
-            target_q_values_B = r_batch + (1 - terminal_batch.float()) * self.gamma * q_target_B
+            qr_next_BAQ = self.qr_target(state_prime_BFHW)
+            qr_next_BA = qr_next_BAQ.mean(dim=2)
+            action_star_B = torch.argmax(qr_next_BA, dim=1)
 
-        qr_values_BAQ = self.qr_network(s_batch)
-        qr_values_BQ = qr_values_BAQ[torch.arange(qr_values_BAQ.shape[0]), a_batch]
+            quantile_action_star_BQ = qr_next_BAQ[torch.arange(batch_size), action_star_B]
+            target_BQ = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * quantile_action_star_BQ
 
-        loss = self._loss(qr_values_BQ, target_q_values_B)
-        loss = loss.mean()
+        # Compute quantile regression loss
+        qr_value_BAQ = self.qr_network(state_BFHW)
+        qr_value_BQ = qr_value_BAQ[torch.arange(batch_size), action_B]
+
+        # The tensor dimensions are [batch, value, target]
+        td_error_BQQ = target_BQ.unsqueeze(1) - qr_value_BQ.unsqueeze(2)
+        huber_BQQ = huber_loss(td_error_BQQ, self.kappa)
+
+        # Quantile Huber loss
+        loss_BQQ = torch.abs(self.tau_Q - (td_error_BQQ < 0).float()) * huber_BQQ
+        loss_B = loss_BQQ.mean(dim=2).sum(dim=1)
+        loss = loss_B.mean()
 
         # Update weights
         self.optim.zero_grad()
@@ -93,11 +104,6 @@ class AtariQRAgent(Agent):
         self.num_updates += 1
         self.current_loss = loss
         self.logged_loss = False
-
-    def _loss(self, input_BQ: torch.Tensor, target_B: torch.Tensor):
-        target_BQ = target_B.unsqueeze(-1).expand_as(input_BQ)
-        u = target_BQ - input_BQ
-        return torch.abs(self.tau_Q - (u < 0).float()) * F.huber_loss(input_BQ, target_BQ, delta=self.kappa)
 
     def log(self, run):
         if not self.logged_loss:

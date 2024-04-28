@@ -1,5 +1,4 @@
 """
-
 Dimension keys:
 
 B: batch size
@@ -12,19 +11,17 @@ S: number of distribution samples for inference
 A: number of available actions
 M: embedding dimension
 D: intermediate dimension between `conv` and `final_fc`
-
 """
 
 import os
-import warnings
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.optim import RMSprop
 
 from agent.agent import Agent
+from agent.utils.huber_loss import huber_loss
 from agent.utils.scheduler import LinearScheduler
 
 
@@ -47,7 +44,8 @@ class AtariOptIQNAgent(Agent):
         self.iqn_target.load_state_dict(self.iqn_network.state_dict())
 
         self.optim = RMSprop(self.iqn_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
-        self.opt_scheduler = LinearScheduler([(0, 0.95), (2_000_000, 0.1), (10_000_000, 0.01)])
+        self.scheduler = LinearScheduler([(0, 1), (500_000, 0.01)])
+        self.opt_scheduler = LinearScheduler([(0, 0.6), (2_000_000, 0.01), (10_000_000, 0.0001)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
@@ -76,7 +74,10 @@ class AtariOptIQNAgent(Agent):
             if train:
                 self.num_actions += 1
 
-            action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
+            if train and np.random.random() < self.scheduler.value(self.num_actions):
+                action[i] = self.action_space.sample()
+            else:
+                action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
 
             # Update target network every 10_000 actions
             if self.num_actions % self.target_update_freq == 0:
@@ -98,12 +99,9 @@ class AtariOptIQNAgent(Agent):
         iq_value_BNA = self.iqn_network(state_BFHW, tau_BN)
         iq_value_BN = iq_value_BNA[torch.arange(batch_size), :, action_B]
 
-        # Compute Huber loss and TD error for every [tau, tau'] pair
-        with warnings.catch_warnings(action="ignore"):
-            # We want broadcasting here, so that we compute over all pairs
-            huber_BNT = F.huber_loss(iq_value_BN.unsqueeze(2), target_BT.unsqueeze(1), reduction="none", delta=self.kappa)
-
+        # Compute quantile regression loss
         td_error_BNT = target_BT.unsqueeze(1) - iq_value_BN.unsqueeze(2)
+        huber_BNT = huber_loss(td_error_BNT, self.kappa)
 
         # Quantile regression loss for every [tau, tau'] pair
         loss_BNT = torch.abs(tau_BN.unsqueeze(2) - (td_error_BNT < 0).float()) * huber_BNT / self.kappa
