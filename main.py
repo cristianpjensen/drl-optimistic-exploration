@@ -1,19 +1,19 @@
 import os
-import shutil
-from typing import Tuple
-from glob import glob
-import string
 import random
+import shutil
+import string
+from glob import glob
+from typing import Tuple
 
 import gymnasium as gym
 import neptune
-import torch
 import numpy as np
+import torch
 from dotenv import load_dotenv
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
-from gymnasium.wrappers.record_video import RecordVideo
-from gymnasium.wrappers.frame_stack import FrameStack
 from gymnasium.wrappers.flatten_observation import FlattenObservation
+from gymnasium.wrappers.frame_stack import FrameStack
+from gymnasium.wrappers.record_video import RecordVideo
 from neptune.integrations.sacred import NeptuneObserver
 from sacred import Experiment
 from tqdm import tqdm
@@ -210,7 +210,7 @@ def train_agent(
 
                 # Intermittent testing
                 if timesteps_trained % test_interval == 0:
-                    # Do 2 test episodes, since 1 is not enough to get a good estimate (Machado et al. 2018, 4.1.2)
+                    # Do 2 test episodes, since 1 is not enough to get a good estimate (Machado et al. 2018, Section 4.1.2)
                     test_ep_return, test_discounted_ep_return, test_timesteps = test_agent(test_env, agent, gamma, 2)
                     run["train/intermittent-testing/test_undiscounted_return"].append(step=timesteps_trained, value=test_ep_return.mean())
                     run["train/intermittent-testing/test_discounted_return"].append(step=timesteps_trained, value=test_discounted_ep_return.mean())

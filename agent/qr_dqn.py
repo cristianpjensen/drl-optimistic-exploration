@@ -35,7 +35,7 @@ class AtariQRAgent(Agent):
         self.tau_Q = (torch.arange(self.n_quantiles, device=self.device) * 2 - 1) / (2 * self.n_quantiles)
         self.kappa = 1
 
-        self.optim = RMSprop(self.q_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
+        self.optim = RMSprop(self.qr_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
         self.scheduler = LinearScheduler([(0, 1), (1000000, 0.01)])
         self.gamma = config["gamma"]
 

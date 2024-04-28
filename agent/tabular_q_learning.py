@@ -1,5 +1,5 @@
-import torch
 import numpy as np
+import torch
 
 from agent.agent import Agent
 from agent.utils.scheduler import LinearScheduler

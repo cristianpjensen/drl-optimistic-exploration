@@ -51,7 +51,7 @@ class AtariIQNAgent(Agent):
         ).to(self.device).requires_grad_(False)
         self.iqn_target.load_state_dict(self.iqn_network.state_dict())
 
-        self.optim = RMSprop(self.q_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
+        self.optim = RMSprop(self.iqn_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
         self.scheduler = LinearScheduler([(0, 1), (1000000, 0.01)])
         self.gamma = config["gamma"]
 

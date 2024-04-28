@@ -13,11 +13,6 @@ A: number of available actions
 M: embedding dimension
 D: intermediate dimension between `conv` and `final_fc`
 
-IMPORTANT: The paper says that a larger n yields better results. The complexity seems to grow
-quadratically with n. the paper also says that after n = 8 we see diminishing returns and that 8 is
-enough to observe improvements over C51/QR. Problem: with n = 8 I have 5 iter/s. With n = 4 20 iter/s
-n = 2 yield 40ish iter per second, and with n = 1 you are expected to recover DQN.
-
 """
 
 import os
@@ -40,10 +35,6 @@ class AtariOptIQNAgent(Agent):
         self.n_samples = 8
         self.n_target_samples = 8
         self.kappa = 1
-        
-        self.num_opt_iters = 2000000
-        self.starting_opt_tau = 0.95
-        self.final_opt_tau = 0.0001
 
         self.iqn_network = AtariIQNNetwork(
             n_actions=config["n_actions"],
@@ -56,8 +47,8 @@ class AtariOptIQNAgent(Agent):
         self.iqn_target.load_state_dict(self.iqn_network.state_dict())
 
         self.optim = RMSprop(self.iqn_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
-        self.scheduler = LinearScheduler([(0, 1), (1000000, 0.01)])
-        self.opt_scheduler = LinearScheduler([(0, self.starting_opt_tau), (self.num_opt_iters, self.final_opt_tau)])
+        self.scheduler = LinearScheduler([(0, 1), (1_000_000, 0)])
+        self.opt_scheduler = LinearScheduler([(0, 0.95), (2_000_000, 0.1), (10_000_000, 0.01)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
@@ -69,15 +60,15 @@ class AtariOptIQNAgent(Agent):
         self.logged_loss = True
 
     def act(self, state, train):
-        #implement optimism with linear decay
-        #optimism vanaishes after first 5000000 iterations
-        #use the linear scheduler implemented by Christian
-        
         with torch.no_grad():
             state_BFHW = torch.tensor(state, device=self.device)
             tau_BS = torch.rand((state_BFHW.shape[0], self.n_inf_samples), device=self.device)
-            opt_tau = self.opt_scheduler.value(self.num_actions)
-            tau_BS = tau_BS * (1 - opt_tau) + opt_tau
+
+            # Optimism with linear decay, combined with epsilon-greedy
+            if train:
+                opt_tau = self.opt_scheduler.value(self.num_actions)
+                tau_BS = tau_BS * (1 - opt_tau) + opt_tau
+
             iq_values_BSA = self.iqn_network(state_BFHW, tau_BS)
             q_values_BA = iq_values_BSA.mean(dim=1)
            
