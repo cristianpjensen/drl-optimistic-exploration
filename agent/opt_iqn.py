@@ -47,7 +47,6 @@ class AtariOptIQNAgent(Agent):
         self.iqn_target.load_state_dict(self.iqn_network.state_dict())
 
         self.optim = RMSprop(self.iqn_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
-        self.scheduler = LinearScheduler([(0, 1), (1_000_000, 0)])
         self.opt_scheduler = LinearScheduler([(0, 0.95), (2_000_000, 0.1), (10_000_000, 0.01)])
         self.gamma = config["gamma"]
 
@@ -77,10 +76,7 @@ class AtariOptIQNAgent(Agent):
             if train:
                 self.num_actions += 1
 
-            if train and np.random.random() < self.scheduler.value(self.num_actions):
-                action[i] = self.action_space.sample()
-            else:
-                action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
+            action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
 
             # Update target network every 10_000 actions
             if self.num_actions % self.target_update_freq == 0:
