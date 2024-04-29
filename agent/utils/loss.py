@@ -20,6 +20,8 @@ def quantile_huber_loss(td_error_BNM: torch.Tensor, tau_BN: torch.Tensor, kappa=
         B: batch size
         N: number of quantiles
         M: number of target quantiles
+
+    Output: [B,]
     """
 
     huber = huber_loss(td_error_BNM, kappa)

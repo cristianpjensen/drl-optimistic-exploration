@@ -86,8 +86,14 @@ class AtariIQNAgent(Agent):
         with torch.no_grad():
             tau_BT = torch.rand((batch_size, self.n_target_samples), device=self.device)
             iq_next_BTA = self.iqn_target(state_prime_BFHW, tau_BT)
-            iq_next_BT, _ = iq_next_BTA.max(dim=-1)
-            target_BT = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * iq_next_BT
+
+            # Get the best next action
+            q_next_BA = iq_next_BTA.mean(dim=1)
+            action_star_B = torch.argmax(q_next_BA, dim=1)
+
+            # Compute target values using the best next action
+            q_action_star_BT = iq_next_BTA[torch.arange(batch_size), :, action_star_B]
+            target_BT = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * q_action_star_BT
 
         tau_BN = torch.rand((batch_size, self.n_samples), device=self.device)
         iq_value_BNA = self.iqn_network(state_BFHW, tau_BN)
@@ -128,7 +134,12 @@ class AtariIQNNetwork(nn.Module):
     """Implementation of IQN network, as in Bellemare book Chapter 10, and
     https://arxiv.org/pdf/1806.06923.pdf.
 
-    Output: B x N x A
+    Dimension keys:
+        B: batch size
+        N: number of distribution samples
+        A: number of available actions
+
+    Output: [B, N, A]
 
     """
     

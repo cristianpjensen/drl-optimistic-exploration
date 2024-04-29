@@ -14,8 +14,9 @@ import torch.nn as nn
 from torch.optim import RMSprop
 
 from agent.agent import Agent
-from agent.utils.loss import huber_loss
+from agent.utils.loss import quantile_huber_loss
 from agent.utils.scheduler import LinearScheduler
+from agent.networks.dqn import AtariDQNFeatures, QNetwork
 
 
 class AtariQRAgent(Agent):
@@ -48,57 +49,50 @@ class AtariQRAgent(Agent):
         self.logged_loss = True
 
     def act(self, state, train):
-        with torch.no_grad():
-            state = torch.tensor(state, device=self.device)
-            qr_values_BAQ = self.qr_network(state)
-            q_values_BA = qr_values_BAQ.mean(dim=-1)
+        if train and np.random.random() < self.scheduler.value(self.num_actions):
+            actions_B = np.zeros(state.shape[0], dtype=self.action_space.dtype)
+            for i in range(state.shape[0]):
+                actions_B[i] = self.action_space.sample()
+        else:
+            with torch.no_grad():
+                state_BFHW = torch.tensor(state, device=self.device)
+                qr_values_BQA = self.qr_network(state_BFHW)
 
-        action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
-        for i in range(state.shape[0]):
-            if train:
-                self.num_actions += 1
+            q_values_BA = torch.mean(qr_values_BQA, dim=1)
+            actions_B = torch.argmax(q_values_BA, dim=1).cpu().numpy()
 
-            if train and np.random.random() < self.scheduler.value(self.num_actions):
-                action[i] = self.action_space.sample()
-            else:
-                action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
+        if train:
+            self.num_actions += state.shape[0]
 
-            # Update target network every 10_000 actions
-            if self.num_actions % self.target_update_freq == 0:
+            if self.num_actions % self.target_update_freq < state.shape[0]:
                 self.qr_target.load_state_dict(self.qr_network.state_dict())
 
-        return action
+        return actions_B
 
     def train(self, state_BFHW, action_B, reward_B, state_prime_BFHW, terminal_B):
         batch_size = state_BFHW.shape[0]
 
-        # Comute distributional Bellman target
+        # Compute distributional Bellman target
         with torch.no_grad():
-            qr_next_BAQ = self.qr_target(state_prime_BFHW)
-            qr_next_BA = qr_next_BAQ.mean(dim=2)
-            action_star_B = torch.argmax(qr_next_BA, dim=1)
+            qr_next_BQA = self.qr_target(state_prime_BFHW)
+            q_next_BA = qr_next_BQA.mean(dim=1)
+            action_star_B = torch.argmax(q_next_BA, dim=1)
 
-            quantile_action_star_BQ = qr_next_BAQ[torch.arange(batch_size), action_star_B]
-            target_BQ = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * quantile_action_star_BQ
+            q_action_star_BQ = qr_next_BQA[torch.arange(batch_size), :, action_star_B]
+            target_BQ = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * q_action_star_BQ
 
         # Compute quantile regression loss
-        qr_value_BAQ = self.qr_network(state_BFHW)
-        qr_value_BQ = qr_value_BAQ[torch.arange(batch_size), action_B]
+        qr_value_BQA = self.qr_network(state_BFHW)
+        qr_value_BQ = qr_value_BQA[torch.arange(batch_size), :, action_B]
 
         # The tensor dimensions are [batch, value, target]
         td_error_BQQ = target_BQ.unsqueeze(1) - qr_value_BQ.unsqueeze(2)
-        huber_BQQ = huber_loss(td_error_BQQ, self.kappa)
-
-        # Quantile Huber loss
-        loss_BQQ = torch.abs(self.tau_Q - (td_error_BQQ < 0).float()) * huber_BQQ
-        loss_B = loss_BQQ.mean(dim=2).sum(dim=1)
-        loss = loss_B.mean()
+        loss = quantile_huber_loss(td_error_BQQ, self.tau_Q.unsqueeze(0), self.kappa)
+        loss = loss.mean()
 
         # Update weights
         self.optim.zero_grad()
         loss.backward()
-        # Clip gradient norms
-        nn.utils.clip_grad_norm_(self.qr_network.parameters(), 10)
         self.optim.step()
 
         self.num_updates += 1
@@ -124,30 +118,29 @@ class AtariQRAgent(Agent):
 
 
 class AtariQRNetwork(nn.Module):
-    """ Ref: https://arxiv.org/pdf/1710.10044.pdf """
+    """Outputs Q quantile values for each action.
+
+    Ref: https://arxiv.org/pdf/1710.10044.pdf
+
+    Dimension keys:
+        B: batch size
+        A: number of available actions
+        Q: number of quantiles
+
+    Output: [B, Q, A]
+    
+    """
 
     def __init__(self, n_actions: int, n_quantiles: int):
         super(AtariQRNetwork, self).__init__()
-
-        # Input: 4 x 84 x 84
 
         self.n_quantiles = n_quantiles
         self.n_actions = n_actions
 
         self.net = nn.Sequential(
-            nn.Conv2d(4, 32, kernel_size=8, stride=4),  # Output: 32 x 20 x 20
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2), # Output: 64 x 9 x 9
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1), # Output: 64 x 7 x 7
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(7 * 7 * 64, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions * n_quantiles)
+            AtariDQNFeatures(),
+            QNetwork(3136, 512, n_quantiles * n_actions),
         )
 
     def forward(self, state):
-        state = state.float() / 255.0
-        output = self.net(state)
-        return output.view(output.shape[0], self.n_actions, self.n_quantiles)
+        return self.net(state).view(state.shape[0], self.n_quantiles, self.n_actions)
