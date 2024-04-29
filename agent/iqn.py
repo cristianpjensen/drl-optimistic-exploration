@@ -122,12 +122,12 @@ class AtariIQNAgent(Agent):
 
     def save(self, dir) -> bool:
         os.makedirs(dir, exist_ok=True)
-        torch.save(self.qr_network.state_dict(), f"{dir}/qr_network.pt")
+        torch.save(self.iqn_network.state_dict(), f"{dir}/iqn_network.pt")
         return True
 
     def load(self, dir):
-        self.qr_target.load_state_dict(torch.load(f"{dir}/qr_network.pt", map_location=self.device))
-        self.qr_network.load_state_dict(torch.load(f"{dir}/qr_network.pt", map_location=self.device))
+        self.iqn_target.load_state_dict(torch.load(f"{dir}/iqn_network.pt", map_location=self.device))
+        self.iqn_network.load_state_dict(torch.load(f"{dir}/iqn_network.pt", map_location=self.device))
 
 
 class AtariIQNNetwork(nn.Module):

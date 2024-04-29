@@ -40,25 +40,24 @@ class AtariDQNAgent(Agent):
         self.logged_loss = True
 
     def act(self, state, train):
-        with torch.no_grad():
-            state = torch.tensor(state, device=self.device)
-            q_values_BA = self.q_network(state)
+        if train and np.random.random() < self.scheduler.value(self.num_actions):
+            actions_B = np.zeros(state.shape[0], dtype=self.action_space.dtype)
+            for i in range(state.shape[0]):
+                actions_B[i] = self.action_space.sample()
+        else:
+            with torch.no_grad():
+                state_BFHW = torch.tensor(state, device=self.device)
+                q_values_BA = self.q_network(state_BFHW)
 
-        action = np.zeros(state.shape[0], dtype=self.action_space.dtype)
-        for i in range(state.shape[0]):
-            if train:
-                self.num_actions += 1
+            actions_B = torch.argmax(q_values_BA, dim=1).cpu().numpy()
 
-            if train and np.random.random() < self.scheduler.value(self.num_actions):
-                action[i] = self.action_space.sample()
-            else:
-                action[i] = torch.argmax(q_values_BA[i]).cpu().numpy()
+        if train:
+            self.num_actions += state.shape[0]
 
-            # Update target network every 10_000 actions
-            if self.num_actions % self.target_update_freq == 0:
+            if self.num_actions % self.target_update_freq < state.shape[0]:
                 self.q_target.load_state_dict(self.q_network.state_dict())
 
-        return action
+        return actions_B
 
     def train(self, s_batch, a_batch, r_batch, s_next_batch, terminal_batch):
         # Compute target value
