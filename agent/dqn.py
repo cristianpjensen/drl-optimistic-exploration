@@ -1,10 +1,9 @@
 """
-Dimension suffix keys:
+Dimension keys:
 
 B: batch size
 A: number of available actions
 """
-
 
 import os
 
@@ -12,7 +11,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import Adam
+from torch.optim import RMSprop
 
 from agent.agent import Agent
 from agent.utils.scheduler import LinearScheduler
@@ -25,8 +24,8 @@ class AtariDQNAgent(Agent):
         self.q_target = AtariValueNetwork(n_actions=config["n_actions"]).to(self.device).requires_grad_(False)
         self.q_target.load_state_dict(self.q_network.state_dict())
 
-        self.optim = Adam(self.q_network.parameters(), lr=0.00025)
-        self.scheduler = LinearScheduler([(0, 1), (config["train_steps"] // 10, 0.05)])
+        self.optim = RMSprop(self.q_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
+        self.scheduler = LinearScheduler([(0, 1), (1000000, 0.01)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
