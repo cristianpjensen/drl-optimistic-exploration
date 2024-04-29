@@ -11,20 +11,23 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.optim import RMSprop
+from torch.optim import Adam
 
 from agent.agent import Agent
 from agent.utils.scheduler import LinearScheduler
+from agent.networks.dqn import AtariDQNFeatures, QNetwork
+from agent.utils.disable_gradients import disable_gradients
 
 
 class AtariDQNAgent(Agent):
     def setup(self, config):
         # Ref: https://www.nature.com/articles/nature14236
-        self.q_network = AtariValueNetwork(n_actions=config["n_actions"]).to(self.device)
-        self.q_target = AtariValueNetwork(n_actions=config["n_actions"]).to(self.device).requires_grad_(False)
+        self.q_network = AtariValueNetwork(config["n_actions"]).to(self.device)
+        self.q_target = AtariValueNetwork(config["n_actions"]).to(self.device)
         self.q_target.load_state_dict(self.q_network.state_dict())
+        disable_gradients(self.q_target)
 
-        self.optim = RMSprop(self.q_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
+        self.optim = Adam(self.q_network.parameters(), lr=0.00025, eps=0.01 / config["batch_size"])
         self.scheduler = LinearScheduler([(0, 1), (1000000, 0.01)])
         self.gamma = config["gamma"]
 
@@ -72,8 +75,6 @@ class AtariDQNAgent(Agent):
         # Update weights
         self.optim.zero_grad()
         loss.backward()
-        # Clip gradient norms
-        nn.utils.clip_grad_norm_(self.q_network.parameters(), 10)
         self.optim.step()
 
         self.num_updates += 1
@@ -104,21 +105,10 @@ class AtariValueNetwork(nn.Module):
     def __init__(self, n_actions: int):
         super(AtariValueNetwork, self).__init__()
 
-        # Input: 4 x 84 x 84
-
         self.net = nn.Sequential(
-            nn.Conv2d(4, 32, kernel_size=8, stride=4),  # Output: 32 x 20 x 20
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2), # Output: 64 x 9 x 9
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1), # Output: 64 x 7 x 7
-            nn.ReLU(),
-            nn.Flatten(),
-            nn.Linear(7 * 7 * 64, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions)
+            AtariDQNFeatures(),
+            QNetwork(3136, 512, n_actions),
         )
 
     def forward(self, state):
-        state = state.float() / 255.0
         return self.net(state)

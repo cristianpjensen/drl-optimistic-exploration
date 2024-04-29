@@ -14,7 +14,7 @@ import torch.nn as nn
 from torch.optim import RMSprop
 
 from agent.agent import Agent
-from agent.utils.huber_loss import huber_loss
+from agent.utils.loss import huber_loss
 from agent.utils.scheduler import LinearScheduler
 
 
