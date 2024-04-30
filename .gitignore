@@ -166,3 +166,4 @@ job.sh
 .vscode/
 test*
 weights*
+*.csv

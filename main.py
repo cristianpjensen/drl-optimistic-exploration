@@ -130,7 +130,12 @@ def main(
 
     test_env = RecordVideo(test_env, f"{NAME}/videos", disable_logger=True, episode_trigger=lambda _: True)
 
-    config = { "gamma": gamma, "train_steps": train_steps }
+    config = {
+        "gamma": gamma,
+        "train_steps": train_steps,
+        "batch_size": batch_size,
+        "train_start":  min_buffer_size,
+    }
     env_tmp = gym.make(env_name, **env_config)
     if hasattr(env_tmp.observation_space, "n"):
         config["n_states"] = env_tmp.observation_space.n
