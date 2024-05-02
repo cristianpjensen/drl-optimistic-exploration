@@ -8,6 +8,7 @@ import gymnasium as gym
 import neptune
 from dotenv import load_dotenv
 from gymnasium.wrappers.record_video import RecordVideo
+from gymnasium.wrappers.time_limit import TimeLimit
 from neptune.integrations.sacred import NeptuneObserver
 from sacred import Experiment
 from tqdm import tqdm
@@ -34,11 +35,11 @@ def config():
     env_name = "CliffWalking-v0"
     env_config = {}
 
-    agent_id = "q-learning"
+    agent_id = "ctdl"
     train_steps = 100_000
     gamma = 0.85
 
-    record_video_every = 1000
+    record_video_every = 100
 
 
 @ex.main
@@ -57,6 +58,7 @@ def main(
     print("DO NOT DELETE THIS DIRECTORY!")
 
     env = gym.make(env_name, render_mode="rgb_array", **env_config)
+    env = TimeLimit(env, max_episode_steps=500)
     env = RecordVideo(env, f"{NAME}/videos", disable_logger=True, episode_trigger=lambda t: t % record_video_every == 0)
     agent = DISCRETE_AGENTS[agent_id](env.observation_space, env.action_space)
 
@@ -85,7 +87,7 @@ def main(
         run["weights"].upload(f"{NAME}/weights.zip", wait=True)
 
     # Clean up
-    shutil.rmtree(NAME)
+    # shutil.rmtree(NAME)
 
 
 def train_discrete_agent(

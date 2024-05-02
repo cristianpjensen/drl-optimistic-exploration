@@ -6,9 +6,7 @@ import numpy as np
 class QTDL(DiscreteAgent):
     def setup(self, config):
         self.n_quantiles = 51
-        self.theta_init = np.linspace(-100, 1, self.n_quantiles)
         self.thetas_SAQ = np.zeros((config["n_states"], config["n_actions"], self.n_quantiles))
-        self.thetas_SAQ += self.theta_init[np.newaxis, np.newaxis, :]
 
         self.tau_Q = (np.arange(self.n_quantiles) * 2 + 1) / (2 * self.n_quantiles)
         self.kappa = 1
@@ -51,9 +49,7 @@ class QTDL(DiscreteAgent):
             self.logged_loss = True
 
     def save(self, dir: str) -> bool:
-        with open(f"{dir}/thetas.npy", "wb") as f:
-            np.save(f, self.thetas_SAQ)
+        np.save(f"{dir}/thetas_SAQ.npy", self.thetas_SAQ)
 
     def load(self, dir: str):
-        with open(f"{dir}/thetas.npy", "wb") as f:
-            self.thetas_SAQ = np.load(f)
+        self.thetas_SAQ = np.load(f"{dir}/thetas_SAQ.npy")

@@ -42,9 +42,7 @@ class QLearning(DiscreteAgent):
             self.logged_loss = True
 
     def save(self, dir: str) -> bool:
-        with open(f"{dir}/q_values.npy", "wb") as f:
-            np.save(f, self.q_values_SA)
+        np.save(f"{dir}/q_values_SA.npy", self.q_values_SA)
 
     def load(self, dir: str):
-        with open(f"{dir}/q_values.npy", "wb") as f:
-            self.q_values_SA = np.load(f)
+        self.q_values_SA = np.load(f"{dir}/q_values_SA.npy")

@@ -33,7 +33,7 @@ class AtariQRAgent(Agent):
         ).to(self.device).requires_grad_(False)
         self.qr_target.load_state_dict(self.qr_network.state_dict())
 
-        self.tau_Q = (torch.arange(self.n_quantiles, device=self.device) * 2 - 1) / (2 * self.n_quantiles)
+        self.tau_Q = (torch.arange(self.n_quantiles, device=self.device) * 2 + 1) / (2 * self.n_quantiles)
         self.kappa = 1
 
         self.optim = RMSprop(self.qr_network.parameters(), lr=0.00025, alpha=0.95, eps=0.01)
