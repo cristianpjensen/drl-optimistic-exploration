@@ -1,18 +1,3 @@
-"""
-Dimension keys:
-
-B: batch size
-F: frame stack size
-H: height
-W: width
-N: number of distribution samples for training values
-T: number of distribution samples for target values
-S: number of distribution samples for inference
-A: number of available actions
-M: embedding dimension
-D: intermediate dimension between `conv` and `final_fc`
-"""
-
 import os
 
 import numpy as np
@@ -66,12 +51,13 @@ class AtariOptIQNAgent(Agent):
             with torch.no_grad():
                 state_BFHW = torch.tensor(state, device=self.device)
                 tau_BK = torch.rand((state_BFHW.shape[0], self.n_inf_samples), device=self.device)
-                iq_values_BKA = self.iqn_network(state_BFHW, tau_BK)
 
-            # Optimistic sampling
-            if train:
-                opt_tau = self.opt_scheduler.value(self.num_actions)
-                tau_BK = opt_tau + tau_BK * (1 - opt_tau)
+                # Optimistic sampling
+                if train:
+                    opt_tau = self.opt_scheduler.value(self.num_actions)
+                    tau_BK = opt_tau + tau_BK * (1 - opt_tau)
+
+                iq_values_BKA = self.iqn_network(state_BFHW, tau_BK)
 
             q_values_BA = torch.mean(iq_values_BKA, dim=1)
             actions_B = torch.argmax(q_values_BA, dim=1).cpu().numpy()
