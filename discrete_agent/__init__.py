@@ -1,6 +1,8 @@
 from discrete_agent.q_learning import QLearning
+from discrete_agent.qtdl import QTDL
 
 
 DISCRETE_AGENTS = {
-    "discrete-q-learning": QLearning
+    "q-learning": QLearning,
+    "qtdl": QTDL,
 }

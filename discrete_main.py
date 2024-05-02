@@ -34,11 +34,11 @@ def config():
     env_name = "CliffWalking-v0"
     env_config = {}
 
-    agent_id = "discrete-q-learning"
+    agent_id = "q-learning"
     train_steps = 100_000
     gamma = 0.85
 
-    record_video_every = 100
+    record_video_every = 1000
 
 
 @ex.main

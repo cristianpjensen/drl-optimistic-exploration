@@ -12,21 +12,22 @@ class QLearning(DiscreteAgent):
         self.num_actions = 0
 
         self.loss = 0
-        self.logged_loss = False
+        self.logged_loss = True
 
     def act(self, state, train):
         if train:
             self.num_actions += 1
-            if np.random.random() < self.scheduler.value(self.num_actions):
-                return self.action_space.sample()
-            else:
-                return np.argmax(self.q_values_SA[state])
+
+        if train and np.random.random() < self.scheduler.value(self.num_actions):
+            return self.action_space.sample()
+
+        return np.argmax(self.q_values_SA[state])
 
     def update_policy(self, state, action, reward, next_state, terminal):
         # Compute temporal difference
         q_current = self.q_values_SA[state, action]
         q_next = np.max(self.q_values_SA[next_state])
-        target = reward + self.gamma * q_next * (1-terminal)
+        target = reward + (1 - terminal) * self.gamma * q_next
         td_error = target - q_current
 
         # Update Q values
