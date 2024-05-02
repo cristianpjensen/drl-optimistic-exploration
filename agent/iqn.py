@@ -10,7 +10,7 @@ T: number of distribution samples for target values
 K: number of distribution samples for inference
 A: number of available actions
 M: embedding dimension
-D: intermediate dimension between `conv` and `final_fc`
+D: intermediate dimension of DQN
 """
 
 import os
