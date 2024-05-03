@@ -19,7 +19,7 @@ from agent.utils.scheduler import LinearScheduler
 from agent.networks.dqn import AtariDQNFeatures, QNetwork
 
 
-class AtariQRAgent(Agent):
+class AtariOptQRAgent(Agent):
     def setup(self, config):
         self.n_quantiles = 200
 
@@ -41,7 +41,8 @@ class AtariQRAgent(Agent):
             lr=0.00025,
             eps=0.01 / config["batch_size"],
         )
-        self.scheduler = LinearScheduler([(0, 1), (1_000_000, 0.01)])
+        self.scheduler = LinearScheduler([(0, 1), (100_000, 0.01)])
+        self.opt_scheduler = LinearScheduler([(0, 0.5), (5_000_000, 0.1), (20_000_000, 0.01)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
@@ -62,7 +63,15 @@ class AtariQRAgent(Agent):
                 state_BFHW = torch.tensor(state, device=self.device)
                 qr_values_BQA = self.qr_network(state_BFHW)
 
-            q_values_BA = torch.mean(qr_values_BQA, dim=1)
+            # Optimistic sampling by zeroing out quantiles below the optimistic tau
+            if train:
+                opt_tau = self.opt_scheduler.value(self.num_actions)
+                n_taus = (self.tau_Q < opt_tau).float().sum()
+                qr_values_BQA = torch.where(self.tau_Q[None, :, None] >= opt_tau, qr_values_BQA, torch.zeros_like(qr_values_BQA))
+                q_values_BA = torch.sum(qr_values_BQA, dim=1) / n_taus
+            else:
+                q_values_BA = torch.mean(qr_values_BQA, dim=1)
+
             actions_B = torch.argmax(q_values_BA, dim=1).cpu().numpy()
 
         if train:
