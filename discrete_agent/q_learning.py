@@ -33,9 +33,6 @@ class QLearning(DiscreteAgent):
         # Update Q values
         self.q_values_SA[state, action] += self.alpha * td_error
 
-        self.loss = td_error
-        self.logged_loss = False
-
     def log(self, run):
         if not self.logged_loss:
             run["train/loss"].log(self.loss)

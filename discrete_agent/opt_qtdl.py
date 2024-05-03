@@ -3,9 +3,9 @@ from discrete_agent.discrete_agent import DiscreteAgent
 import numpy as np
 
 
-class QTDL(DiscreteAgent):
+class OptQTDL(DiscreteAgent):
     def setup(self, config):
-        self.n_quantiles = 32
+        self.n_quantiles = 51
         init_v_min = -20
         init_v_max = 20
 
@@ -26,8 +26,14 @@ class QTDL(DiscreteAgent):
         if train:
             self.num_actions += 1
 
-        if train and np.random.random() < self.scheduler.value(self.num_actions):
-            return self.action_space.sample()
+            # Only take the upper quantiles
+            values_AN = self.values_SAN[state]
+            opt_tau = self.scheduler.value(self.num_actions)
+            opt_values = np.where(self.tau_N >= opt_tau, values_AN, 0)
+            n_taus = np.sum(self.tau_N >= opt_tau)
+            q_values_A = np.sum(opt_values, axis=1) / n_taus
+
+            return np.argmax(q_values_A)
 
         # Compute greedy action
         q_values_A = np.mean(self.values_SAN[state], axis=1)
