@@ -6,13 +6,10 @@ import numpy as np
 class QTDL(DiscreteAgent):
     def setup(self, config):
         self.n_quantiles = 32
-        init_v_min = -20
-        init_v_max = 20
 
-        # Initialize values to be uniformly distributed
+        # Initialize values as Dirac at 0
         self.values_SAN = np.zeros((config["n_states"], config["n_actions"], self.n_quantiles))
-        self.values_SAN[:] = np.linspace(init_v_min, init_v_max, self.n_quantiles)
-        self.tau_N = (np.arange(1, self.n_quantiles + 1) * 2 - 1) / (2 * self.n_quantiles)
+        self.tau_N = np.arange(self.n_quantiles) / self.n_quantiles
 
         self.alpha = 0.1
         self.gamma = config["gamma"]
@@ -36,15 +33,16 @@ class QTDL(DiscreteAgent):
     def update_policy(self, state, action, reward, next_state, terminal):
         next_action = self.act(next_state, train=False)
 
-        for i in range(self.n_quantiles):
-            value_prime = self.values_SAN[state, action, i]
-            tau = self.tau_N[i]
+        # Ref: https://arxiv.org/pdf/1710.10044 (Equation 12)
 
-            for j in range(self.n_quantiles):
-                g = reward + (1 - terminal) * self.gamma * self.values_SAN[next_state, next_action, j]
-                value_prime += (self.alpha / self.n_quantiles) * (tau - (g < self.values_SAN[state, action, i]))
-
-            self.values_SAN[state, action, i] = value_prime
+        indices = np.arange(self.n_quantiles)
+        tau_hat_N = np.where(indices == 0, 0, (self.tau_N[indices - 1] + self.tau_N[indices]) / 2)
+        next_values_N = self.values_SAN[next_state, next_action]
+        target_N = reward + (1 - terminal) * self.gamma * next_values_N
+        
+        quantile_loss_NN = tau_hat_N.reshape(-1, 1) - (target_N.reshape(1, -1) < self.values_SAN[state, action].reshape(-1, 1))
+        update_N = np.mean(quantile_loss_NN, axis=1)
+        self.values_SAN[state, action] += self.alpha * update_N
 
     def log(self, run):
         if not self.logged_loss:
