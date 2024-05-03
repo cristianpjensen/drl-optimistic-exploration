@@ -6,11 +6,9 @@ import numpy as np
 class OptCTDL(DiscreteAgent):
     def setup(self, config):
         self.n_categories = 51
-        self.v_max = 1
+        self.v_max = 20
         self.v_min = -20
-        self.prob_dist_SAN = np.zeros((config["n_states"], config["n_actions"], self.n_categories))
-        # Initialize all state, action pairs optimistically
-        self.prob_dist_SAN[:, :, -1] = 1
+        self.prob_dist_SAN = np.ones((config["n_states"], config["n_actions"], self.n_categories)) / self.n_categories
         self.values_N = np.linspace(self.v_min, self.v_max, self.n_categories)
         self.delta_z = (self.v_max - self.v_min) / (self.n_categories - 1)
 
@@ -23,17 +21,18 @@ class OptCTDL(DiscreteAgent):
         self.logged_loss = True
 
     def act(self, state, train):
+        # Sample action from categoricals
         if train:
             self.num_actions += 1
 
-        # Sample action from categoricals
-        if train and np.random.random() < self.scheduler.value(self.num_actions):
+            opt_tau = self.scheduler.value(self.num_actions)
             prob_dist_AN = self.prob_dist_SAN[state]
-            samples_A = np.zeros(prob_dist_AN.shape[0])
-            for i in range(prob_dist_AN.shape[0]):
-                samples_A[i] = np.random.choice(self.values_N, p=prob_dist_AN[i])
+            # Compute CDF
+            cdf_AN = np.cumsum(prob_dist_AN, axis=1)
+            prob_dist_AN = np.where(cdf_AN >= opt_tau, prob_dist_AN, 0)
+            q_values_A = np.sum(self.values_N * prob_dist_AN, axis=1)
 
-            return np.argmax(samples_A)
+            return np.argmax(q_values_A)
 
         # Compute greedy action
         prob_dist_AN = self.prob_dist_SAN[state]

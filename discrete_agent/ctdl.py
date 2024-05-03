@@ -8,8 +8,7 @@ class CTDL(DiscreteAgent):
         self.n_categories = 51
         self.v_max = 20
         self.v_min = -20
-        self.prob_dist_SAN = np.zeros((config["n_states"], config["n_actions"], self.n_categories))
-        self.prob_dist_SAN[:, :, -1] = 1
+        self.prob_dist_SAN = np.ones((config["n_states"], config["n_actions"], self.n_categories)) / self.n_categories
         self.values_N = np.linspace(self.v_min, self.v_max, self.n_categories)
         self.delta_z = (self.v_max - self.v_min) / (self.n_categories - 1)
 
