@@ -50,6 +50,7 @@ class QTDL(DiscreteAgent):
 
     def save(self, dir: str) -> bool:
         np.save(f"{dir}/thetas_SAQ.npy", self.thetas_SAQ)
+        return True
 
     def load(self, dir: str):
         self.thetas_SAQ = np.load(f"{dir}/thetas_SAQ.npy")

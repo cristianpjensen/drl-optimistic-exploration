@@ -87,7 +87,7 @@ def main(
         run["weights"].upload(f"{NAME}/weights.zip", wait=True)
 
     # Clean up
-    # shutil.rmtree(NAME)
+    shutil.rmtree(NAME)
 
 
 def train_discrete_agent(

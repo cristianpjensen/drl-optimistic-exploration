@@ -43,6 +43,7 @@ class QLearning(DiscreteAgent):
 
     def save(self, dir: str) -> bool:
         np.save(f"{dir}/q_values_SA.npy", self.q_values_SA)
+        return True
 
     def load(self, dir: str):
         self.q_values_SA = np.load(f"{dir}/q_values_SA.npy")

@@ -43,24 +43,20 @@ class OptCTDL(DiscreteAgent):
     def update_policy(self, state, action, reward, next_state, terminal):
         next_action = self.act(next_state, train=False)
 
+        g = reward + (1 - terminal) * self.gamma * self.values_N
+        g = np.clip(g, self.v_min + 1e-6, self.v_max - 1e-6)
+
+        # Largest i s.t. values[i] <= g
+        i_star = self.values_N.searchsorted(g, side="right") - 1
+        zeta = (g - self.values_N[i_star]) / (self.values_N[i_star + 1] - self.values_N[i_star])
+
         p_hat = np.zeros(self.n_categories)
-        for j in range(self.n_categories):
-            g = reward + (1 - terminal) * self.gamma * self.values_N[j]
+        # Cannot use simple assignment here, because there might be duplicate indices
+        np.add.at(p_hat, i_star, (1 - zeta) * self.prob_dist_SAN[next_state, next_action])
+        np.add.at(p_hat, i_star + 1, zeta * self.prob_dist_SAN[next_state, next_action])
 
-            if g <= self.v_min:
-                p_hat[0] += self.prob_dist_SAN[next_state, next_action, j]
-            elif g >= self.v_max:
-                p_hat[-1] += self.prob_dist_SAN[next_state, next_action, j]
-            else:
-                # Largest i such that values[i] <= g
-                i_star = int((g - self.v_min) / self.delta_z)
-                zeta = (g - self.values_N[i_star]) / self.delta_z
-
-                p_hat[i_star] += (1 - zeta) * self.prob_dist_SAN[next_state, next_action, j]
-                p_hat[i_star + 1] += zeta * self.prob_dist_SAN[next_state, next_action, j]
-
-        for i in range(self.n_categories):
-            self.prob_dist_SAN[state, action, i] = (1 - self.alpha) * self.prob_dist_SAN[state, action, i] + self.alpha * p_hat[i]
+        # Bootstrap
+        self.prob_dist_SAN[state, action] = (1 - self.alpha) * self.prob_dist_SAN[state, action] + self.alpha * p_hat
 
     def log(self, run):
         if not self.logged_loss:
@@ -69,6 +65,7 @@ class OptCTDL(DiscreteAgent):
 
     def save(self, dir: str) -> bool:
         np.save(f"{dir}/prob_dist_SAN.npy", self.prob_dist_SAN)
+        return True
 
     def load(self, dir: str):
         self.prob_dist_SAN = np.load(f"{dir}/prob_dist_SAN.npy")
