@@ -10,13 +10,12 @@ import os
 
 import numpy as np
 import torch
-import torch.nn as nn
 from torch.optim import Adam
 
 from agent.agent import Agent
+from agent.qr_dqn import AtariQRNetwork
 from agent.utils.loss import quantile_huber_loss
 from agent.utils.scheduler import LinearScheduler
-from agent.networks.dqn import AtariDQNFeatures, QNetwork
 
 
 class AtariOptQRAgent(Agent):
@@ -128,32 +127,3 @@ class AtariOptQRAgent(Agent):
     def load(self, dir):
         self.qr_target.load_state_dict(torch.load(f"{dir}/qr_network.pt", map_location=self.device))
         self.qr_network.load_state_dict(torch.load(f"{dir}/qr_network.pt", map_location=self.device))
-
-
-class AtariQRNetwork(nn.Module):
-    """Outputs Q quantile values for each action.
-
-    Ref: https://arxiv.org/pdf/1710.10044.pdf
-
-    Dimension keys:
-        B: batch size
-        A: number of available actions
-        Q: number of quantiles
-
-    Output: [B, Q, A]
-    
-    """
-
-    def __init__(self, n_actions: int, n_quantiles: int):
-        super(AtariQRNetwork, self).__init__()
-
-        self.n_quantiles = n_quantiles
-        self.n_actions = n_actions
-
-        self.net = nn.Sequential(
-            AtariDQNFeatures(),
-            QNetwork(3136, 512, n_quantiles * n_actions),
-        )
-
-    def forward(self, state):
-        return self.net(state).view(state.shape[0], self.n_quantiles, self.n_actions)
