@@ -1,13 +1,18 @@
+"""
+Dimension keys:
+
+B: batch size
+A: number of available actions
+"""
+
 import os
 
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.optim import Adam
 
 from agent.agent import Agent
-from agent.networks.dqn import AtariDQNFeatures, QNetwork
+from agent.c51 import AtariC51Network
 from agent.utils.disable_gradients import disable_gradients
 from agent.utils.scheduler import LinearScheduler
 
@@ -27,6 +32,7 @@ class AtariC51Agent(Agent):
 
         self.optim = Adam(self.cat_network.parameters(), lr=0.00025, eps=0.01 / config["batch_size"])
         self.scheduler = LinearScheduler([(0, 1), (1_000_000, 0.01)])
+        self.opt_scheduler = LinearScheduler([(0, 0.5), (5_000_000, 0.1), (20_000_000, 0.01)])
         self.gamma = config["gamma"]
 
         self.num_actions = 0
@@ -46,6 +52,13 @@ class AtariC51Agent(Agent):
             with torch.no_grad():
                 state_BFHW = torch.tensor(state, device=self.device)
                 probs_BAN = self.cat_network(state_BFHW)
+
+            # Optimistic sampling
+            if train:
+                opt_tau = self.opt_scheduler.value(self.num_actions)
+                cdf_BAN = probs_BAN.cumsum(dim=2)
+                probs_BAN = torch.where(cdf_BAN >= opt_tau, probs_BAN, torch.zeros_like(probs_BAN))
+
             q_values_BA = torch.sum(probs_BAN * self.values_N, dim=2)
             actions_B = torch.argmax(q_values_BA, dim=1).cpu().numpy()
 
@@ -112,33 +125,3 @@ class AtariC51Agent(Agent):
     def load(self, dir):
         self.cat_target.load_state_dict(torch.load(f"{dir}/cat_network.pt", map_location=self.device))
         self.cat_network.load_state_dict(torch.load(f"{dir}/cat_network.pt", map_location=self.device))
-
-
-class AtariC51Network(nn.Module):
-    """Categorical Q-network for Atari environments.
-
-    Ref: https://arxiv.org/abs/1707.06887
-
-    Dimension keys:
-        B: batch size
-        A: number of available actions
-        N: number of categories in the distribution
-
-    Output: [B, A, N]
-    
-    """
-
-    def __init__(self, n_actions: int, n_categories: int):
-        super(AtariC51Network, self).__init__()
-
-        self.n_actions = n_actions
-        self.n_categories = n_categories
-
-        self.net = nn.Sequential(
-            AtariDQNFeatures(),
-            QNetwork(3136, 512, n_actions * n_categories),
-        )
-
-    def forward(self, state):
-        log_probs_BAN = self.net(state).view(-1, self.n_actions, self.n_categories)
-        return F.softmax(log_probs_BAN, dim=2)

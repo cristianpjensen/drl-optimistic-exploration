@@ -24,7 +24,7 @@ def quantile_huber_loss(td_error_BNM: torch.Tensor, tau_BN: torch.Tensor, kappa=
     Output: [B,]
     """
 
-    huber = huber_loss(td_error_BNM, kappa)
-    quantile = torch.abs(tau_BN.unsqueeze(-1) - (td_error_BNM < 0).float()) * huber / kappa
+    huber_BNM = huber_loss(td_error_BNM, kappa)
+    quantile_BNM = torch.abs(tau_BN.unsqueeze(2) - (td_error_BNM < 0).float()) * huber_BNM / kappa
 
-    return quantile.mean(dim=-1).sum(dim=-1)
+    return quantile_BNM.mean(dim=2).sum(dim=1)

@@ -5,10 +5,10 @@ import torch
 from torch.optim import Adam
 
 from agent.agent import Agent
+from agent.iqn import AtariIQNNetwork
+from agent.utils.disable_gradients import disable_gradients
 from agent.utils.loss import quantile_huber_loss
 from agent.utils.scheduler import LinearScheduler
-from agent.utils.disable_gradients import disable_gradients
-from agent.iqn import AtariIQNNetwork
 
 
 class AtariOptIQNAgent(Agent):
