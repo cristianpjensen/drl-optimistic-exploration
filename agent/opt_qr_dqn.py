@@ -66,7 +66,7 @@ class AtariOptQRAgent(Agent):
             # Optimistic sampling by zeroing out quantiles below the optimistic tau
             if train:
                 opt_tau = self.opt_scheduler.value(self.num_actions)
-                n_taus = (self.tau_Q < opt_tau).float().sum()
+                n_taus = (self.tau_Q >= opt_tau).float().sum()
                 qr_values_BQA = torch.where(self.tau_Q[None, :, None] >= opt_tau, qr_values_BQA, torch.zeros_like(qr_values_BQA))
                 q_values_BA = torch.sum(qr_values_BQA, dim=1) / n_taus
             else:
