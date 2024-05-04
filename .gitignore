@@ -167,3 +167,4 @@ job.sh
 test*
 weights*
 *.csv
+*.npy

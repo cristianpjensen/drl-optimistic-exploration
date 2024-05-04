@@ -9,7 +9,6 @@ from agent.tabular_q_learning import TabularQLearningAgent
 
 AGENTS = {
     "random": RandomAgent,
-    "tabular-q-learning": TabularQLearningAgent,
     "atari-dqn": AtariDQNAgent,
     "atari-iqn": AtariIQNAgent,
     "atari-opt-iqn": AtariOptIQNAgent,

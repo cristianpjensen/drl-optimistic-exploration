@@ -1,10 +1,3 @@
-"""
-Dimension keys:
-
-B: batch size
-A: number of available actions
-"""
-
 import os
 
 import numpy as np
@@ -53,7 +46,6 @@ class AtariC51Agent(Agent):
             with torch.no_grad():
                 state_BFHW = torch.tensor(state, device=self.device)
                 probs_BAN = self.cat_network(state_BFHW)
-
             q_values_BA = torch.sum(probs_BAN * self.values_N, dim=2)
             actions_B = torch.argmax(q_values_BA, dim=1).cpu().numpy()
 
