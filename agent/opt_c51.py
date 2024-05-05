@@ -17,7 +17,7 @@ from agent.utils.disable_gradients import disable_gradients
 from agent.utils.scheduler import LinearScheduler
 
 
-class AtariC51Agent(Agent):
+class AtariOptC51Agent(Agent):
     def setup(self, config):
         self.n_categories = 51
         self.v_min = -10
@@ -79,9 +79,7 @@ class AtariC51Agent(Agent):
             q_prime_BA = torch.sum(probs_prime_BAN * self.values_N, dim=2)
             action_star_B = torch.argmax(q_prime_BA, dim=1)
 
-            # Temp: next_dist
             probs_prime_BN = probs_prime_BAN[torch.arange(batch_size), action_star_B]
-            # Tz
             target_values_BN = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * self.values_N
             target_values_BN = torch.clamp(target_values_BN, self.v_min, self.v_max)
 
