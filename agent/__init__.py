@@ -4,6 +4,7 @@ from agent.opt_c51 import AtariOptC51Agent
 from agent.bayesian_opt_c51 import AtariBayesianOptC51Agent
 from agent.dqn import AtariDQNAgent
 from agent.iqn import AtariIQNAgent
+from agent.opt_c51 import AtariOptC51Agent
 from agent.opt_iqn import AtariOptIQNAgent
 from agent.opt_qr_dqn import AtariOptQRAgent
 from agent.qr_dqn import AtariQRAgent
