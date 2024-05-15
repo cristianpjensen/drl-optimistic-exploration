@@ -9,15 +9,17 @@ import os
 
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import Adam
 
 from agent.agent import Agent
-from agent.c51 import AtariC51Network
 from agent.utils.disable_gradients import disable_gradients
 from agent.utils.scheduler import LinearScheduler
+from agent.networks.bayesian_dqn import BayesianAtariDQNFeatures, BayesianQNetwork
 
 
-class AtariOptC51Agent(Agent):
+class AtariBayesianOptC51Agent(Agent):
     def setup(self, config):
         self.n_categories = 51
         self.v_min = -10
@@ -25,8 +27,8 @@ class AtariOptC51Agent(Agent):
         self.values_N = torch.linspace(self.v_min, self.v_max, self.n_categories, device=self.device)
         self.delta_z = (self.v_max - self.v_min) / (self.n_categories - 1)
 
-        self.cat_network = AtariC51Network(config["n_actions"], self.n_categories).to(self.device)
-        self.cat_target = AtariC51Network(config["n_actions"], self.n_categories).to(self.device)
+        self.cat_network = BayesianAtariC51Network(config["n_actions"], self.n_categories).to(self.device)
+        self.cat_target = BayesianAtariC51Network(config["n_actions"], self.n_categories).to(self.device)
         self.cat_target.load_state_dict(self.cat_network.state_dict())
         disable_gradients(self.cat_target)
 
@@ -51,7 +53,7 @@ class AtariOptC51Agent(Agent):
         else:
             with torch.no_grad():
                 state_BFHW = torch.tensor(state, device=self.device)
-                probs_BAN = self.cat_network(state_BFHW)
+                probs_BAN = self.cat_network(state_BFHW, train)
 
             # Optimistic sampling
             if train:
@@ -75,7 +77,7 @@ class AtariOptC51Agent(Agent):
 
         # Compute target value
         with torch.no_grad():
-            probs_prime_BAN = self.cat_target(state_prime_BFHW)
+            probs_prime_BAN = self.cat_target(state_prime_BFHW, train=False)
             q_prime_BA = torch.sum(probs_prime_BAN * self.values_N, dim=2)
             action_star_B = torch.argmax(q_prime_BA, dim=1)
 
@@ -85,7 +87,6 @@ class AtariOptC51Agent(Agent):
             target_values_BN = reward_B.unsqueeze(-1) + (1 - terminal_B.unsqueeze(-1).float()) * self.gamma * self.values_N
             target_values_BN = torch.clamp(target_values_BN, self.v_min, self.v_max)
 
-
         b = (target_values_BN - self.v_min) / self.delta_z
         lower = torch.floor(b)
         upper = torch.ceil(b)
@@ -94,7 +95,7 @@ class AtariOptC51Agent(Agent):
         target_probs_BN = target_probs_BN.scatter_add(1, lower.long(), probs_prime_BN * (upper - b))
         target_probs_BN = target_probs_BN.scatter_add(1, upper.long(), probs_prime_BN * (b - lower))
 
-        probs_BAN = self.cat_network(state_BFHW)
+        probs_BAN = self.cat_network(state_BFHW, train=True)
         probs_BN = probs_BAN[torch.arange(batch_size), action_B]
 
         loss = -torch.sum(target_probs_BN * torch.log(probs_BN + 1e-5), dim=1)
@@ -125,3 +126,33 @@ class AtariOptC51Agent(Agent):
     def load(self, dir):
         self.cat_target.load_state_dict(torch.load(f"{dir}/cat_network.pt", map_location=self.device))
         self.cat_network.load_state_dict(torch.load(f"{dir}/cat_network.pt", map_location=self.device))
+
+
+class BayesianAtariC51Network(nn.Module):
+    """Categorical Q-network for Atari environments.
+
+    Ref: https://arxiv.org/abs/1707.06887
+
+    Dimension keys:
+        B: batch size
+        A: number of available actions
+        N: number of categories in the distribution
+
+    Output: [B, A, N]
+    
+    """
+
+    def __init__(self, n_actions: int, n_categories: int):
+        super(BayesianAtariC51Network, self).__init__()
+
+        self.n_actions = n_actions
+        self.n_categories = n_categories
+
+        self.features = BayesianAtariDQNFeatures()
+        self.q_network = BayesianQNetwork(3136, 512, n_actions * n_categories)
+
+    def forward(self, state, train=True):
+        feats = self.features(state, train)
+        log_probs_BAN = self.q_network(feats, train).view(-1, self.n_actions, self.n_categories)
+
+        return F.softmax(log_probs_BAN, dim=2)
