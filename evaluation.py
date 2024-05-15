@@ -43,7 +43,7 @@ def main(id: str):
 
     print("Outputting training score data to CSV:", file)
 
-    df_100 = df[df["episodes"] % 100 == 0]
+    df_100 = df[df["episodes"] % (len(df) // 500) == 0]
     df_100.to_csv(f"{file}_100th.csv", index=False)
 
     print("Outputting every 100th training score data to CSV:", file)

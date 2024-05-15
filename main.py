@@ -14,6 +14,7 @@ from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
 from gymnasium.wrappers.flatten_observation import FlattenObservation
 from gymnasium.wrappers.frame_stack import FrameStack
 from gymnasium.wrappers.record_video import RecordVideo
+from gymnasium.wrappers.time_limit import TimeLimit
 from neptune.integrations.sacred import NeptuneObserver
 from sacred import Experiment
 from tqdm import tqdm
@@ -38,14 +39,14 @@ ex.observers.append(NeptuneObserver(run))
 @ex.config
 def config():
     env_name = "ALE/SpaceInvaders-v5"
-    num_envs = 4
+    num_envs = 32
     env_config = {}
 
     # Agent identifier
     agent_id = "atari-dqn"
 
     # Replay buffer sizes
-    batch_size = 32
+    batch_size = 256
     min_buffer_size = 50_000
     max_buffer_size = 1_000_000
 
@@ -54,10 +55,10 @@ def config():
     train_steps = 50_000_000
     
     # How many episodes to test on after training
-    test_episodes = 100
+    test_episodes = 10
 
     # How many times to intermittently test the model between training steps
-    train_test_interval = 50_000
+    train_test_interval = 500_000
 
     # Discount factor (https://www.nature.com/articles/nature14236)
     gamma = 0.99
@@ -94,11 +95,13 @@ def main(
                 # The ALE environments already have frame skipping
                 lambda env: AtariPreprocessing(env, frame_skip=1, screen_size=84),
                 lambda env: FrameStack(env, 4),
+                lambda env: TimeLimit(env, 5 * 30 * 60),
             ],
         )
         test_env = gym.make(env_name, render_mode="rgb_array", **env_config)
         test_env = AtariPreprocessing(test_env, frame_skip=1, screen_size=84)
         test_env = FrameStack(test_env, 4)
+        test_env = TimeLimit(test_env, 5 * 30 * 60)
 
         agent = AGENTS[agent_id](
             envs.single_observation_space,
