@@ -86,6 +86,9 @@ def main(
     print("DO NOT DELETE THIS DIRECTORY!")
     print("Device:", device)
 
+    if torch.cuda.is_available():
+        print("GPU:", torch.cuda.get_device_name())
+
     if "ALE" in env_name:
         envs = gym.make_vec(
             env_name,
