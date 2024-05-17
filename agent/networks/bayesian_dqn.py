@@ -36,6 +36,12 @@ class BayesianAtariDQNFeatures(nn.Module):
 
         return x.flatten(start_dim=1)
 
+    def prior_kl_loss(self):
+        kl1 = self.conv1.prior_kl_loss()
+        kl2 = self.conv2.prior_kl_loss()
+        kl3 = self.conv3.prior_kl_loss()
+        return kl1 + kl2 + kl3
+
 
 class BayesianQNetwork(nn.Module):
     """Linear network that maps convolutional features of the Atari DQN network to Q-values per
@@ -60,3 +66,8 @@ class BayesianQNetwork(nn.Module):
         x = self.linear2(x, train)
 
         return x
+
+    def prior_kl_loss(self):
+        kl1 = self.linear1.prior_kl_loss()
+        kl2 = self.linear2.prior_kl_loss()
+        return kl1 + kl2
