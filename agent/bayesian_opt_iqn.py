@@ -31,7 +31,7 @@ class AtariBayesianOptIQNAgent(Agent):
             lr=0.00025,
             eps=0.01 / config["batch_size"],
         )
-        self.scheduler = LinearScheduler([(0, 1), (100_000, 0.01)])
+        self.scheduler = LinearScheduler([(0, 0), (0, 0)])
         self.opt_scheduler = LinearScheduler([(0, 0.5), (5_000_000, 0.1), (20_000_000, 0.01)])
         self.gamma = config["gamma"]
 
