@@ -168,3 +168,4 @@ test*
 weights*
 *.csv
 *.npy
+*.pt

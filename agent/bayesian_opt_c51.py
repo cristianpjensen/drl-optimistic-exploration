@@ -33,7 +33,7 @@ class AtariBayesianOptC51Agent(Agent):
         disable_gradients(self.cat_target)
 
         self.optim = Adam(self.cat_network.parameters(), lr=0.00025, eps=0.01 / config["batch_size"])
-        self.scheduler = LinearScheduler([(0, 1), (1_000_000, 0.01)])
+        self.scheduler = LinearScheduler([(0, 0), (0, 0)])
         self.opt_scheduler = LinearScheduler([(0, 0.5), (5_000_000, 0.1), (20_000_000, 0.01)])
         self.gamma = config["gamma"]
 
@@ -42,7 +42,7 @@ class AtariBayesianOptC51Agent(Agent):
         self.target_update_freq = 10_000
 
         # For logging the loss
-        self.current_loss = 0
+        self.current_loss = [0, 0, 0]
         self.logged_loss = True
 
     def act(self, state, train):
@@ -98,8 +98,11 @@ class AtariBayesianOptC51Agent(Agent):
         probs_BAN = self.cat_network(state_BFHW, train=True)
         probs_BN = probs_BAN[torch.arange(batch_size), action_B]
 
-        loss = -torch.sum(target_probs_BN * torch.log(probs_BN + 1e-5), dim=1)
-        loss = loss.mean()
+        td_loss = -torch.sum(target_probs_BN * torch.log(probs_BN + 1e-5), dim=1)
+        td_loss = td_loss.mean()
+        
+        kl_loss = self.cat_network.prior_kl_loss()
+        loss = td_loss + 0.1 * kl_loss
 
         # Update weights
         self.optim.zero_grad()
@@ -107,12 +110,14 @@ class AtariBayesianOptC51Agent(Agent):
         self.optim.step()
 
         self.num_updates += 1
-        self.current_loss = loss
+        self.current_loss = [loss, td_loss, kl_loss]
         self.logged_loss = False
 
     def log(self, run):
         if not self.logged_loss:
-            run["train/loss"].append(torch.mean(self.current_loss))
+            run["train/loss"].append(self.current_loss[0])
+            run["train/td_loss"].append(self.current_loss[1])
+            run["train/kl_loss"].append(self.current_loss[2])
             self.logged_loss = True
 
         run["train/num_actions"].append(self.num_actions)
@@ -129,7 +134,7 @@ class AtariBayesianOptC51Agent(Agent):
 
 
 class BayesianAtariC51Network(nn.Module):
-    """Categorical Q-network for Atari environments.
+    """Bayesian categorical Q-network for Atari environments.
 
     Ref: https://arxiv.org/abs/1707.06887
 
@@ -154,5 +159,7 @@ class BayesianAtariC51Network(nn.Module):
     def forward(self, state, train=True):
         feats = self.features(state, train)
         log_probs_BAN = self.q_network(feats, train).view(-1, self.n_actions, self.n_categories)
-
         return F.softmax(log_probs_BAN, dim=2)
+
+    def prior_kl_loss(self):
+        return self.features.prior_kl_loss() + self.q_network.prior_kl_loss()
