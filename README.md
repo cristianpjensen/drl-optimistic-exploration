@@ -1,4 +1,4 @@
-# Foundations of Reinforcement Learning Project
+# Optimistic Approximate Posterior Sampling for Exploration in Distributional Reinforcement Learning
 
 `gymnasium` supports and tests only up to python 3.11, so setup the conda environment with:
 ```
